@@ -44,6 +44,10 @@ pub struct TransmitRadarMarkProcess {
     pub ally_infantry_4_marked: u8,
     pub ally_aerial_marked: u8,
     pub ally_sentry_marked: u8,
+    pub opponent_aerial_targeted: u8,
+    pub opponent_aerial_countered: u8,
+    pub ally_aerial_targeted: u8,
+    pub ally_aerial_countered: u8,
 }
 
 /// Radar autonomous decision sync broadcast (ZMQ_PUB_RADAR_SYNC)
@@ -142,6 +146,9 @@ pub struct ReceiveSdrGain {
     pub sentry_hp_recovery: u8, pub sentry_cooling_acceleration: u16,
     pub sentry_defence: u8, pub sentry_negative_defence: u8, pub sentry_attack: u16,
     pub sentry_posture: u8,
+    pub hero_state: u8, pub engineer_state: u8,
+    pub infantry_3_state: u8, pub infantry_4_state: u8,
+    pub sentry_state: u8,
 }
 
 /// SDR jamming key (part of ZMQ_SUB_SDR).

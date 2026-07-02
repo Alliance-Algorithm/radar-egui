@@ -49,6 +49,10 @@ pub fn zmq_package(
                 ally_infantry_4_marked: src.ally_infantry_4_marked,
                 ally_aerial_marked: src.ally_aerial_marked,
                 ally_sentry_marked: src.ally_sentry_marked,
+                opponent_aerial_targeted: src.opponent_aerial_targeted,
+                opponent_aerial_countered: src.opponent_aerial_countered,
+                ally_aerial_targeted: src.ally_aerial_targeted,
+                ally_aerial_countered: src.ally_aerial_countered,
             };
             serde_json::to_string(&data)?
         }
