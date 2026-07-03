@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use tokio::sync::watch;
@@ -27,6 +27,7 @@ where
 
 pub struct ZmqSubRuntime {
     stop: Arc<AtomicBool>,
+    handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ZmqSubRuntime {
@@ -40,9 +41,10 @@ impl ZmqSubRuntime {
         let stop_clone = stop.clone();
         let addrs = addrs.to_vec();
 
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let (_, sub, _) =
                 crate::zmq::zmq::zmq_init(1, "", &addrs).expect("ZMQ SUB init failed");
+            sub.set_rcvtimeo(100).expect("ZMQ set rcvtimeo");
             while !stop_clone.load(Ordering::Relaxed) {
                 match sub.recv_bytes(0) {
                     Ok(bytes) => {
@@ -118,11 +120,16 @@ impl ZmqSubRuntime {
             }
         });
 
-        Self { stop }
+        Self { stop, handle: Mutex::new(Some(handle)) }
     }
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut h) = self.handle.lock() {
+            if let Some(handle) = h.take() {
+                let _ = handle.join();
+            }
+        }
     }
 
     pub fn is_started(&self) -> bool {
