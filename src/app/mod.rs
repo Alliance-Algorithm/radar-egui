@@ -3,7 +3,7 @@ use std::sync::Once;
 use self::video_texture::VideoTextureCache;
 use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
-use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqSubRuntime};
+use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
 use crate::services::process_control::ProcessControl;
 use crate::state::{LaserObservationReader, PointCloudFrameReader, SerialReader, ZmqReader};
 use crate::theme;
@@ -74,6 +74,7 @@ pub struct RadarApp {
     connection_status: ConnectionStatus,
     last_update: Option<std::time::Instant>,
     zmq_sub: ZmqSubRuntime,
+    zmq_pub: ZmqPubRuntime,
     zmq_addr: String,
     error_message: Option<String>,
     data_count: u64,
@@ -106,14 +107,20 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        let (zmq_reader, _zmq_writer) = ZmqReader::new_pair();
-        let (serial_reader, _serial_writer) = SerialReader::new_pair();
-        let (laser_feed, laser_writer) = LaserObservationReader::new_pair();
+        let (zmq_reader, zmq_writer) = ZmqReader::new_pair();
+        let (serial_reader, serial_writer) = SerialReader::new_pair();
+        let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
+
         let zmq_sub = ZmqSubRuntime::start(
             &["tcp://127.0.0.1:5555".into(), "tcp://127.0.0.1:5556".into()],
             zmq_reader.inner().clone(),
             serial_reader.inner().clone(),
-            laser_writer,
+        );
+
+        let zmq_pub = ZmqPubRuntime::start(
+            "tcp://*:5557",
+            zmq_reader.inner().clone(),
+            serial_writer.inner(),
         );
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
@@ -135,6 +142,7 @@ impl Default for RadarApp {
             connection_status: ConnectionStatus::Disconnected,
             last_update: None,
             zmq_sub,
+            zmq_pub,
             zmq_addr: "tcp://127.0.0.1:5555".to_string(),
             error_message: None,
             data_count: 0,
