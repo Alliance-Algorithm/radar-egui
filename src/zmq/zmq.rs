@@ -12,25 +12,23 @@ use crate::zmq::data_format::{
     TransmitRadarSync, ZmqData, IDX_ZMQ_LASER, IDX_ZMQ_LIDAR, IDX_ZMQ_SDR, ZMQ_PUB_GAME_STATE,
     ZMQ_PUB_RADAR_MARK, ZMQ_PUB_RADAR_SYNC,
 };
-pub fn zmq_init(
-    thread_num: i32,
-    pub_str: &str,
-    sub_str: &[String],
-) -> zmq2::Result<(zmq2::Socket, zmq2::Socket, &'static str)> {
+pub fn zmq_init_pub(thread_num: i32, bind_addr: &str) -> zmq2::Result<zmq2::Socket> {
     let context = zmq2::Context::new();
     context.set_io_threads(thread_num)?;
     let pub_socket = context.socket(zmq2::PUB)?;
+    pub_socket.bind(bind_addr)?;
+    Ok(pub_socket)
+}
+
+pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<zmq2::Socket> {
+    let context = zmq2::Context::new();
+    context.set_io_threads(thread_num)?;
     let sub_socket = context.socket(zmq2::SUB)?;
-    sub_socket.set_connect_timeout(100)?;
-    pub_socket.bind(pub_str)?;
-    for index in sub_str.iter() {
-        sub_socket.connect(index)?;
+    sub_socket.set_rcvtimeo(100)?;
+    for addr in connect_addrs.iter() {
+        sub_socket.connect(addr)?;
     }
-    Ok((
-        pub_socket,
-        sub_socket,
-        "Has been initialized pub and sub socket successfully",
-    ))
+    Ok(sub_socket)
 }
 pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
     pub_socket.send(msg, 0)?;
