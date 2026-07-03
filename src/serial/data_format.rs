@@ -40,7 +40,7 @@ pub const SDR_ENEMY_ROBOT_POSITION_DATA_LEN: usize = 24;
 pub const SDR_ENEMY_ROBOT_BLOOD_DATA_LEN: usize = 12;
 pub const SDR_ENEMY_ROBOT_REMAINING_AMMO_DATA_LEN: usize = 10;
 pub const SDR_ENEMY_ROBOT_OVERALL_STATE_DATA_LEN: usize = 8;
-pub const SDR_ENEMY_ROBOT_GAIN_DATA_LEN: usize = 36;
+pub const SDR_ENEMY_ROBOT_GAIN_DATA_LEN: usize = 41;
 pub const SDR_JAMMING_KEY_DATA_LEN: usize = 6;
 
 #[derive(Debug, Clone, Default, DekuRead, DekuWrite)]
@@ -182,8 +182,20 @@ pub struct RadarMarkProcessData {
     #[deku(bits = "1")]
     pub ally_aerial_marked: u8,
     /// mark_progress bit 11  ally sentry marked
-    #[deku(bits = "1", pad_bits_after = "4")]
+    #[deku(bits = "1")]
     pub ally_sentry_marked: u8,
+    /// mark_progress bit 12  opponent aerial targeted by ally radar laser
+    #[deku(bits = "1")]
+    pub opponent_aerial_targeted: u8,
+    /// mark_progress bit 13  opponent aerial counter-status
+    #[deku(bits = "1")]
+    pub opponent_aerial_countered: u8,
+    /// mark_progress bit 14  ally aerial targeted by opponent radar laser
+    #[deku(bits = "1")]
+    pub ally_aerial_targeted: u8,
+    /// mark_progress bit 15  ally aerial counter-status
+    #[deku(bits = "1")]
+    pub ally_aerial_countered: u8,
 }
 
 // cmd_id = 0x020E, data_len = 1
@@ -217,8 +229,8 @@ impl Default for RobotInteractionData {
     fn default() -> Self {
         Self {
             subcontext_cmd_id: 0,
-            sender_id: DeviceId::Default,
-            receiver_id: DeviceId::Default,
+            sender_id: DeviceId::UnKnown,
+            receiver_id: DeviceId::UnKnown,
             subcontext_data: Vec::new(),
         }
     }
@@ -449,8 +461,18 @@ pub struct SdrEnemyRobotGainData {
     pub sentry_negative_defence: u8,
     /// data[33..35] u16 LE attack (percent)
     pub sentry_attack: u16,
-    /// data[35]        sentry posture (1=attack 2=defense 3=move)
+    /// data[35]        sentry posture (1=attack 2=defense 3=move 4=strong_attack 5=strong_defense 6=strong_move)
     pub sentry_posture: u8,
+    /// data[36]        hero main state (0=alive 1=dead 2=invincible_not_weak 3=invincible_weak)
+    pub hero_state: u8,
+    /// data[37]        engineer main state
+    pub engineer_state: u8,
+    /// data[38]        infantry 3 main state
+    pub infantry_3_state: u8,
+    /// data[39]        infantry 4 main state
+    pub infantry_4_state: u8,
+    /// data[40]        sentry main state
+    pub sentry_state: u8,
 }
 
 // cmd_id = 0x0A06, data_len = 6
@@ -463,7 +485,7 @@ pub struct SdrJammingKeyData {
 
 // Aggregate protocol data struct
 #[derive(Debug, Clone, Default)]
-pub struct SerialProtocolData {
+pub struct SerialData {
     pub game_state_data: GameStateData,
     pub game_result_data: GameResultData,
     pub site_event_data: SiteEventData,

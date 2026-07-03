@@ -182,7 +182,7 @@ impl RadarApp {
         laser_snapshot: Option<&LaserSnapshot>,
     ) {
         let laser_online = laser_snapshot.is_some_and(|snapshot| snapshot.online);
-        let laser_listening = self.zmq_laser.is_started();
+        let laser_listening = self.zmq_sub.is_started();
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])

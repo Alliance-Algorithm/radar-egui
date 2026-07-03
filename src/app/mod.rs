@@ -3,9 +3,9 @@ use std::sync::Once;
 use self::video_texture::VideoTextureCache;
 use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
-use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqLaserRuntime, ZmqSdrRuntime};
+use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
 use crate::services::process_control::ProcessControl;
-use crate::state::{LaserObservationReader, PointCloudFrameReader, ZmqReader};
+use crate::state::{LaserObservationReader, PointCloudFrameReader, SerialReader, ZmqReader};
 use crate::theme;
 use crate::laser::video::VideoFrameReader;
 use crate::widgets::{LaserPanel, MinimapWidget};
@@ -70,10 +70,11 @@ pub struct RadarApp {
     logo_texture: Option<egui::TextureHandle>,
     logo_texture_failed: bool,
 
-    sdr_reader: ZmqReader,
+    zmq_reader: ZmqReader,
     connection_status: ConnectionStatus,
     last_update: Option<std::time::Instant>,
-    zmq_sdr: ZmqSdrRuntime,
+    zmq_sub: ZmqSubRuntime,
+    zmq_pub: ZmqPubRuntime,
     zmq_addr: String,
     error_message: Option<String>,
     data_count: u64,
@@ -83,7 +84,6 @@ pub struct RadarApp {
     pointcloud_viz: PointCloudVisualizer,
 
     laser_feed: LaserObservationReader,
-    zmq_laser: ZmqLaserRuntime,
     video_feed: VideoFrameReader,
     video_runtime: VideoRuntime,
     laser_video_texture: VideoTextureCache,
@@ -107,11 +107,21 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        let (sdr_reader, sdr_writer) = ZmqReader::new_pair();
-        let zmq_sdr = ZmqSdrRuntime::start("tcp://127.0.0.1:5555", sdr_writer);
+        let (zmq_reader, zmq_writer) = ZmqReader::new_pair();
+        let (serial_reader, serial_writer) = SerialReader::new_pair();
+        let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
 
-        let (laser_feed, laser_writer) = LaserObservationReader::new_pair();
-        let zmq_laser = ZmqLaserRuntime::start("tcp://127.0.0.1:5556", laser_writer);
+        let zmq_sub = ZmqSubRuntime::start(
+            &["tcp://127.0.0.1:5555".into(), "tcp://127.0.0.1:5556".into()],
+            zmq_reader.inner().clone(),
+            serial_reader.inner().clone(),
+        );
+
+        let zmq_pub = ZmqPubRuntime::start(
+            "tcp://*:5557",
+            zmq_reader.inner().clone(),
+            serial_writer.inner(),
+        );
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
         let video_runtime = VideoRuntime::new(video_writer);
@@ -128,10 +138,11 @@ impl Default for RadarApp {
             minimap_zoom: 1.0,
             logo_texture: None,
             logo_texture_failed: false,
-            sdr_reader,
+            zmq_reader,
             connection_status: ConnectionStatus::Disconnected,
             last_update: None,
-            zmq_sdr,
+            zmq_sub,
+            zmq_pub,
             zmq_addr: "tcp://127.0.0.1:5555".to_string(),
             error_message: None,
             data_count: 0,
@@ -140,7 +151,6 @@ impl Default for RadarApp {
             rerun_viz: RerunVisualizer::new(),
             pointcloud_viz: PointCloudVisualizer::default(),
             laser_feed,
-            zmq_laser,
             video_feed,
             video_runtime,
             laser_video_texture: VideoTextureCache::default(),
@@ -221,7 +231,7 @@ impl eframe::App for RadarApp {
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
         self.ensure_logo_texture(ctx);
-        let radar_snapshot = self.sdr_reader.snapshot();
+        let radar_snapshot = self.zmq_reader.snapshot();
         self.update_connection_status(radar_snapshot.as_ref());
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();

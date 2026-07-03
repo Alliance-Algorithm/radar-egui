@@ -4,7 +4,7 @@ use deku::prelude::*;
 #[deku(ctx = "_endian: deku::ctx::Endian", id_type = "u16")]
 pub enum DeviceId {
     #[deku(id = "0")]
-    Default,
+    UnKnown,
     // Red team
     #[deku(id = "1")]
     RedHero,
@@ -59,7 +59,7 @@ pub enum DeviceId {
 impl From<DeviceId> for u16 {
     fn from(v: DeviceId) -> u16 {
         match v {
-            DeviceId::Default => 0,
+            DeviceId::UnKnown => 0,
             DeviceId::RedHero => 1,
             DeviceId::RedEngineer => 2,
             DeviceId::RedInfantry3 => 3,
@@ -90,7 +90,7 @@ impl From<DeviceId> for u16 {
 impl From<u16> for DeviceId {
     fn from(v: u16) -> Self {
         match v {
-            0 => DeviceId::Default,
+            0 => DeviceId::UnKnown,
             1 => DeviceId::RedHero,
             2 => DeviceId::RedEngineer,
             3 => DeviceId::RedInfantry3,
@@ -114,7 +114,7 @@ impl From<u16> for DeviceId {
             110 => DeviceId::BlueOutpost,
             111 => DeviceId::BlueBase,
             0x8080 => DeviceId::RefereeServer,
-            _ => DeviceId::Default,
+            _ => DeviceId::UnKnown,
         }
     }
 }

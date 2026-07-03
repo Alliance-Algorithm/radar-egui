@@ -13,11 +13,11 @@ use std::sync::Mutex;
 
 pub struct SerialParser {
     frame_header: data_format::SerialFrameHeader,
-    protocol_data: Arc<Mutex<data_format::SerialProtocolData>>,
+    protocol_data: Arc<Mutex<data_format::SerialData>>,
 }
 
 impl SerialParser {
-    pub fn new(protocol_data_input: Arc<Mutex<data_format::SerialProtocolData>>) -> Self {
+    pub fn new(protocol_data_input: Arc<Mutex<data_format::SerialData>>) -> Self {
         SerialParser {
             frame_header: data_format::SerialFrameHeader::default(),
             protocol_data: protocol_data_input,

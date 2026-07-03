@@ -167,10 +167,8 @@ src/
 │
 ├── zmq/                             # ZMQ 进程间通信层 (Rust ↔ C++/Python)
 │   ├── mod.rs                       # 模块声明
-│   ├── zmq.rs                       # PUB/SUB 初始化 + send/recv 封装
+│   ├── zmq.rs                       # zmq_init_pub/sub, zmq_send/recv, start_zmq_pub/sub, zmq_serial_update, fusion
 │   ├── data_format.rs               # ZmqMessageId + ZMQ_PUB_*/ZMQ_SUB_* 常量 + Transmit*/Receive* + ZmqData
-│   ├── zmq_package.rs               # JSON 组包 (SerialProtocolData → JSON string)
-│   ├── zmq_parser.rs                # JSON 解包 (JSON bytes → cmd_id 分发)
 │   └── fusion.rs                    # [TODO] 多源数据融合
 │
 ├── sdr/                             # [REMOVED] 已删除，ZMQ 替代完成

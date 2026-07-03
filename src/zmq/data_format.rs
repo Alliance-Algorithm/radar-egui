@@ -44,6 +44,10 @@ pub struct TransmitRadarMarkProcess {
     pub ally_infantry_4_marked: u8,
     pub ally_aerial_marked: u8,
     pub ally_sentry_marked: u8,
+    pub opponent_aerial_targeted: u8,
+    pub opponent_aerial_countered: u8,
+    pub ally_aerial_targeted: u8,
+    pub ally_aerial_countered: u8,
 }
 
 /// Radar autonomous decision sync broadcast (ZMQ_PUB_RADAR_SYNC)
@@ -91,39 +95,58 @@ pub struct ReceiveLidarLocation {
 /// SDR enemy robot position (part of ZMQ_SUB_SDR).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiveSdrPosition {
-    pub hero_x: i16, pub hero_y: i16,
-    pub engineer_x: i16, pub engineer_y: i16,
-    pub infantry_3_x: i16, pub infantry_3_y: i16,
-    pub infantry_4_x: i16, pub infantry_4_y: i16,
-    pub aerial_x: i16, pub aerial_y: i16,
-    pub sentry_x: i16, pub sentry_y: i16,
+    pub hero_x: i16,
+    pub hero_y: i16,
+    pub engineer_x: i16,
+    pub engineer_y: i16,
+    pub infantry_3_x: i16,
+    pub infantry_3_y: i16,
+    pub infantry_4_x: i16,
+    pub infantry_4_y: i16,
+    pub aerial_x: i16,
+    pub aerial_y: i16,
+    pub sentry_x: i16,
+    pub sentry_y: i16,
 }
 
 /// SDR enemy robot blood (part of ZMQ_SUB_SDR).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiveSdrBlood {
-    pub hero_blood: u16, pub engineer_blood: u16,
-    pub infantry_3_blood: u16, pub infantry_4_blood: u16,
-    pub reserved: u16, pub sentry_blood: u16,
+    pub hero_blood: u16,
+    pub engineer_blood: u16,
+    pub infantry_3_blood: u16,
+    pub infantry_4_blood: u16,
+    pub reserved: u16,
+    pub sentry_blood: u16,
 }
 
 /// SDR enemy robot remaining ammo (part of ZMQ_SUB_SDR).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiveSdrAmmo {
-    pub hero_ammo: u16, pub infantry_3_ammo: u16, pub infantry_4_ammo: u16,
-    pub aerial_ammo: u16, pub sentry_ammo: u16,
+    pub hero_ammo: u16,
+    pub infantry_3_ammo: u16,
+    pub infantry_4_ammo: u16,
+    pub aerial_ammo: u16,
+    pub sentry_ammo: u16,
 }
 
 /// SDR enemy robot overall state (part of ZMQ_SUB_SDR).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiveSdrState {
-    pub remaining_gold: u16, pub total_gold: u16,
-    pub supply_zone_status: u8, pub central_highland_status: u8,
-    pub trapezoid_highland_status: u8, pub fortress_gain_status: u8,
-    pub outpost_gain_status: u8, pub base_gain_status: u8,
-    pub tunnel_1_status: u8, pub tunnel_2_status: u8,
-    pub tunnel_3_status: u8, pub tunnel_4_status: u8,
-    pub highland_upper_status: u8, pub ramp_rear_status: u8,
+    pub remaining_gold: u16,
+    pub total_gold: u16,
+    pub supply_zone_status: u8,
+    pub central_highland_status: u8,
+    pub trapezoid_highland_status: u8,
+    pub fortress_gain_status: u8,
+    pub outpost_gain_status: u8,
+    pub base_gain_status: u8,
+    pub tunnel_1_status: u8,
+    pub tunnel_2_status: u8,
+    pub tunnel_3_status: u8,
+    pub tunnel_4_status: u8,
+    pub highland_upper_status: u8,
+    pub ramp_rear_status: u8,
     pub road_upper_status: u8,
     pub occupation_status: [u8; 6],
 }
@@ -131,17 +154,37 @@ pub struct ReceiveSdrState {
 /// SDR enemy robot gain (part of ZMQ_SUB_SDR).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReceiveSdrGain {
-    pub hero_hp_recovery: u8, pub hero_cooling_acceleration: u16,
-    pub hero_defence: u8, pub hero_negative_defence: u8, pub hero_attack: u16,
-    pub engineer_hp_recovery: u8, pub engineer_cooling_acceleration: u16,
-    pub engineer_defence: u8, pub engineer_negative_defence: u8, pub engineer_attack: u16,
-    pub infantry_3_hp_recovery: u8, pub infantry_3_cooling_acceleration: u16,
-    pub infantry_3_defence: u8, pub infantry_3_negative_defence: u8, pub infantry_3_attack: u16,
-    pub infantry_4_hp_recovery: u8, pub infantry_4_cooling_acceleration: u16,
-    pub infantry_4_defence: u8, pub infantry_4_negative_defence: u8, pub infantry_4_attack: u16,
-    pub sentry_hp_recovery: u8, pub sentry_cooling_acceleration: u16,
-    pub sentry_defence: u8, pub sentry_negative_defence: u8, pub sentry_attack: u16,
+    pub hero_hp_recovery: u8,
+    pub hero_cooling_acceleration: u16,
+    pub hero_defence: u8,
+    pub hero_negative_defence: u8,
+    pub hero_attack: u16,
+    pub engineer_hp_recovery: u8,
+    pub engineer_cooling_acceleration: u16,
+    pub engineer_defence: u8,
+    pub engineer_negative_defence: u8,
+    pub engineer_attack: u16,
+    pub infantry_3_hp_recovery: u8,
+    pub infantry_3_cooling_acceleration: u16,
+    pub infantry_3_defence: u8,
+    pub infantry_3_negative_defence: u8,
+    pub infantry_3_attack: u16,
+    pub infantry_4_hp_recovery: u8,
+    pub infantry_4_cooling_acceleration: u16,
+    pub infantry_4_defence: u8,
+    pub infantry_4_negative_defence: u8,
+    pub infantry_4_attack: u16,
+    pub sentry_hp_recovery: u8,
+    pub sentry_cooling_acceleration: u16,
+    pub sentry_defence: u8,
+    pub sentry_negative_defence: u8,
+    pub sentry_attack: u16,
     pub sentry_posture: u8,
+    pub hero_state: u8,
+    pub engineer_state: u8,
+    pub infantry_3_state: u8,
+    pub infantry_4_state: u8,
+    pub sentry_state: u8,
 }
 
 /// SDR jamming key (part of ZMQ_SUB_SDR).
@@ -182,12 +225,27 @@ pub struct ReceiveLaser {
     pub candidates: Vec<ReceiveModelCandidate>,
 }
 
-// ── ZMQ shared state (equivalent to serial::SerialProtocolData) ──
+// ── ZMQ shared state (equivalent to serial::SerialData) ──
 
-/// Aggregates all ZMQ received data. Analogous to `serial::SerialProtocolData`.
+/// Aggregates all ZMQ data (SUB receive + PUB transmit pending).
+/// Analogous to `serial::SerialData`.
 #[derive(Debug, Clone, Default)]
 pub struct ZmqData {
-    pub sdr: ReceiveSdr,
-    pub laser: ReceiveLaser,
-    pub lidar: ReceiveLidarLocation,
+    // SUB: data received from C++/Python (None until first message)
+    pub sdr: Option<ReceiveSdr>,
+    pub laser: Option<ReceiveLaser>,
+    pub lidar: Option<ReceiveLidarLocation>,
+
+    // PUB: data pending transmit to C++/Python (filled from SerialData)
+    pub game_state: Option<TransmitGameState>,
+    pub radar_mark: Option<TransmitRadarMarkProcess>,
+    pub radar_sync: Option<TransmitRadarSync>,
+    pub zmq_produce: [u8; 6],
 }
+
+pub const IDX_ZMQ_SDR: usize = 0;
+pub const IDX_ZMQ_LASER: usize = 1;
+pub const IDX_ZMQ_LIDAR: usize = 2;
+pub const IDX_ZMQ_GAME_STATE: usize = 3;
+pub const IDX_ZMQ_RADAR_MARK: usize = 4;
+pub const IDX_ZMQ_RADAR_SYNC: usize = 5;
