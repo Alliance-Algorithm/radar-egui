@@ -240,4 +240,12 @@ pub struct ZmqData {
     pub game_state: Option<TransmitGameState>,
     pub radar_mark: Option<TransmitRadarMarkProcess>,
     pub radar_sync: Option<TransmitRadarSync>,
+    pub zmq_produce: [u8; 6],
 }
+
+pub const IDX_ZMQ_SDR: usize = 0;
+pub const IDX_ZMQ_LASER: usize = 1;
+pub const IDX_ZMQ_LIDAR: usize = 2;
+pub const IDX_ZMQ_GAME_STATE: usize = 3;
+pub const IDX_ZMQ_RADAR_MARK: usize = 4;
+pub const IDX_ZMQ_RADAR_SYNC: usize = 5;
