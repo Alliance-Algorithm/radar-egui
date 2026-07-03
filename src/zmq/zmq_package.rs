@@ -5,7 +5,7 @@ use super::data_format::{
     TransmitGameState, TransmitRadarMarkProcess, TransmitRadarSync,
     ZMQ_PUB_GAME_STATE, ZMQ_PUB_RADAR_MARK, ZMQ_PUB_RADAR_SYNC,
 };
-use crate::serial::data_format::SerialProtocolData;
+use crate::serial::data_format::SerialData;
 
 fn invalid_cmd_id(cmd: u16) -> serde_json::Error {
     serde_json::Error::io(io::Error::new(
@@ -17,7 +17,7 @@ fn invalid_cmd_id(cmd: u16) -> serde_json::Error {
 /// Read the specified `cmd_id` field from shared state and serialize to a JSON string.
 pub fn zmq_package(
     cmd_id: u16,
-    protocol_data: Arc<Mutex<SerialProtocolData>>,
+    protocol_data: Arc<Mutex<SerialData>>,
 ) -> Result<String, serde_json::Error> {
     let lock = protocol_data.lock().unwrap();
 

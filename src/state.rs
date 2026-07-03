@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::laser::protocol::LaserObservation;
-use crate::zmq::data_format::{ReceiveSdr, ZmqData};
+use crate::serial::data_format::SerialData;
+use crate::zmq::data_format::{
+    ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, TransmitRadarSync, ZmqData,
+};
 
 #[derive(Clone)]
 pub struct ZmqReader {
@@ -29,15 +32,72 @@ impl ZmqReader {
     }
 
     pub fn snapshot(&self) -> Option<ReceiveSdr> {
-        self.inner.lock().ok().map(|s| s.sdr.clone())
+        self.inner.lock().ok().and_then(|s| s.sdr.clone())
+    }
+
+    pub fn inner(&self) -> Arc<Mutex<ZmqData>> {
+        self.inner.clone()
     }
 }
 
 impl ZmqWriter {
     pub fn publish_sdr(&self, signal: ReceiveSdr) {
         if let Ok(mut state) = self.inner.lock() {
-            state.sdr = signal;
+            state.sdr = Some(signal);
         }
+    }
+
+    pub fn publish_game_state(&self, data: TransmitGameState) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.game_state = Some(data);
+        }
+    }
+
+    pub fn publish_radar_mark(&self, data: TransmitRadarMarkProcess) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.radar_mark = Some(data);
+        }
+    }
+
+    pub fn publish_radar_sync(&self, data: TransmitRadarSync) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.radar_sync = Some(data);
+        }
+    }
+}
+
+// ── Serial shared state ──
+
+#[derive(Clone)]
+pub struct SerialReader {
+    inner: Arc<Mutex<SerialData>>,
+}
+
+#[derive(Clone)]
+pub struct SerialWriter {
+    inner: Arc<Mutex<SerialData>>,
+}
+
+impl Default for SerialReader {
+    fn default() -> Self {
+        Self::new_pair().0
+    }
+}
+
+impl SerialReader {
+    pub fn new_pair() -> (Self, SerialWriter) {
+        let inner = Arc::new(Mutex::new(SerialData::default()));
+        (Self { inner: inner.clone() }, SerialWriter { inner })
+    }
+
+    pub fn inner(&self) -> Arc<Mutex<SerialData>> {
+        self.inner.clone()
+    }
+}
+
+impl SerialWriter {
+    pub fn inner(&self) -> Arc<Mutex<SerialData>> {
+        self.inner.clone()
     }
 }
 

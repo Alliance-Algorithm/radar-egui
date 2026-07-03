@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -8,7 +8,9 @@ use tokio::sync::watch;
 
 use crate::laser::video::{self, VideoFrameWriter};
 use crate::pointcloud::reader;
-use crate::state::{LaserObservationWriter, PointCloudFrameWriter, ZmqWriter};
+use crate::serial::data_format::SerialData;
+use crate::state::{LaserObservationWriter, PointCloudFrameWriter};
+use crate::zmq::data_format::ZmqData;
 
 fn spawn_runtime_task<M, F>(make_future: M)
 where
@@ -21,65 +23,62 @@ where
     });
 }
 
-// ── ZMQ-based runtimes (std::thread, no tokio) ──
+// ── ZMQ SUB runtime (std::thread, single socket for all SUB endpoints) ──
 
-pub struct ZmqSdrRuntime {
+pub struct ZmqSubRuntime {
     stop: Arc<AtomicBool>,
 }
 
-impl ZmqSdrRuntime {
-    pub fn start(addr: &str, writer: ZmqWriter) -> Self {
+impl ZmqSubRuntime {
+    pub fn start(
+        addrs: &[String],
+        zmq: Arc<Mutex<ZmqData>>,
+        serial: Arc<Mutex<SerialData>>,
+        laser_writer: LaserObservationWriter,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
-        let addr = addr.to_owned();
+        let addrs = addrs.to_vec();
 
         thread::spawn(move || {
             let (_, sub, _) =
-                crate::zmq::zmq::zmq_init(1, "", &[addr]).expect("ZMQ SUB init failed");
+                crate::zmq::zmq::zmq_init(1, "", &addrs).expect("ZMQ SUB init failed");
             while !stop_clone.load(Ordering::Relaxed) {
                 match sub.recv_bytes(0) {
                     Ok(bytes) => {
                         if let Ok(sdr) =
                             serde_json::from_slice::<crate::zmq::data_format::ReceiveSdr>(&bytes)
                         {
-                            writer.publish_sdr(sdr);
+                            if let Ok(mut z) = zmq.lock() {
+                                z.sdr = Some(sdr.clone());
+                            }
+                            let mut s = serial.lock().unwrap();
+                            s.sdr_enemy_robot_position_data.hero_x = sdr.position.hero_x;
+                            s.sdr_enemy_robot_position_data.hero_y = sdr.position.hero_y;
+                            s.sdr_enemy_robot_position_data.engineer_x = sdr.position.engineer_x;
+                            s.sdr_enemy_robot_position_data.engineer_y = sdr.position.engineer_y;
+                            s.sdr_enemy_robot_position_data.infantry_3_x =
+                                sdr.position.infantry_3_x;
+                            s.sdr_enemy_robot_position_data.infantry_3_y =
+                                sdr.position.infantry_3_y;
+                            s.sdr_enemy_robot_position_data.infantry_4_x =
+                                sdr.position.infantry_4_x;
+                            s.sdr_enemy_robot_position_data.infantry_4_y =
+                                sdr.position.infantry_4_y;
+                            s.sdr_enemy_robot_position_data.aerial_x = sdr.position.aerial_x;
+                            s.sdr_enemy_robot_position_data.aerial_y = sdr.position.aerial_y;
+                            s.sdr_enemy_robot_position_data.sentry_x = sdr.position.sentry_x;
+                            s.sdr_enemy_robot_position_data.sentry_y = sdr.position.sentry_y;
+                            s.zmq_produced
+                                [crate::serial::data_format::IDX_SDR_ENEMY_ROBOT_POSITION] = 1;
+                            continue;
                         }
-                    }
-                    Err(e) => {
-                        log::warn!("ZMQ SDR recv error: {}", e);
-                        thread::sleep(Duration::from_secs(1));
-                    }
-                }
-            }
-        });
-
-        Self { stop }
-    }
-
-    pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
-    }
-}
-
-pub struct ZmqLaserRuntime {
-    stop: Arc<AtomicBool>,
-}
-
-impl ZmqLaserRuntime {
-    pub fn start(addr: &str, writer: LaserObservationWriter) -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_clone = stop.clone();
-        let addr = addr.to_owned();
-
-        thread::spawn(move || {
-            let (_, sub, _) =
-                crate::zmq::zmq::zmq_init(1, "", &[addr]).expect("ZMQ SUB init failed");
-            while !stop_clone.load(Ordering::Relaxed) {
-                match sub.recv_bytes(0) {
-                    Ok(bytes) => {
                         if let Ok(laser) =
                             serde_json::from_slice::<crate::zmq::data_format::ReceiveLaser>(&bytes)
                         {
+                            if let Ok(mut z) = zmq.lock() {
+                                z.laser = Some(laser.clone());
+                            }
                             let observation = crate::laser::protocol::LaserObservation {
                                 detected: laser.detected,
                                 center: laser.center,
@@ -97,11 +96,22 @@ impl ZmqLaserRuntime {
                                     .collect(),
                                 received_at: Some(std::time::Instant::now()),
                             };
-                            writer.publish(observation);
+                            laser_writer.publish(observation);
+                            continue;
+                        }
+                        if let Ok(lidar) = serde_json::from_slice::<
+                            crate::zmq::data_format::ReceiveLidarLocation,
+                        >(&bytes)
+                        {
+                            if let Ok(mut z) = zmq.lock() {
+                                z.lidar = Some(lidar);
+                            }
+                            // Lidar fusion handled by fusion layer
+                            continue;
                         }
                     }
                     Err(e) => {
-                        log::warn!("ZMQ Laser recv error: {}", e);
+                        log::warn!("ZMQ SUB recv error: {}", e);
                         thread::sleep(Duration::from_secs(1));
                     }
                 }
@@ -118,8 +128,6 @@ impl ZmqLaserRuntime {
     pub fn is_started(&self) -> bool {
         !self.stop.load(Ordering::Relaxed)
     }
-
-    pub fn ensure_started(&mut self) {}
 }
 
 // ── Video (SHM) ──

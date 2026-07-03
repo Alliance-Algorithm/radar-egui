@@ -1,11 +1,12 @@
 use super::data_format::{
-    SerialProtocolData, DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
+    SerialData, DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
     RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID,
     SITE_EVENT_CMD_ID,
 };
 use super::serial_package::serial_package;
 use super::serial_parser::SerialParser;
 use super::serialconfig::SerialConfig;
+use crate::zmq::data_format::ZmqData;
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
 use std::sync::Arc;
@@ -56,12 +57,13 @@ impl Serial {
 }
 
 /// Spawn a receiver thread that continuously reads from the serial port,
-/// parses incoming DJI frames, and writes to the shared `SerialProtocolData`.
+/// parses incoming DJI frames, and writes to the shared `SerialData`.
 pub fn start_receiver(
     mut serial: Serial,
-    protocol_data_receiver_state: Arc<Mutex<SerialProtocolData>>,
+    serial_data: Arc<Mutex<SerialData>>,
+    zmq_data: Arc<Mutex<ZmqData>>,
 ) -> thread::JoinHandle<()> {
-    let mut serial_parser = SerialParser::new(protocol_data_receiver_state);
+    let mut serial_parser = SerialParser::new(serial_data);
     let mut data: Vec<u8> = Vec::new();
     thread::spawn(move || loop {
         match serial.receive_data() {
@@ -85,10 +87,11 @@ pub fn start_receiver(
 /// Only clears a flag when the entire send chain succeeds.
 pub fn start_transmitter(
     serial: Serial,
-    tx_state: Arc<Mutex<SerialProtocolData>>,
+    serial_data: Arc<Mutex<SerialData>>,
+    zmq_data: Arc<Mutex<ZmqData>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        let mut data = tx_state.lock().unwrap();
+        let mut data = serial_data.lock().unwrap();
         for idx in 0..7 {
             if data.zmq_produced[idx] == 0 {
                 continue;

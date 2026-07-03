@@ -229,8 +229,8 @@ impl Default for RobotInteractionData {
     fn default() -> Self {
         Self {
             subcontext_cmd_id: 0,
-            sender_id: DeviceId::Default,
-            receiver_id: DeviceId::Default,
+            sender_id: DeviceId::UnKnown,
+            receiver_id: DeviceId::UnKnown,
             subcontext_data: Vec::new(),
         }
     }
@@ -485,7 +485,7 @@ pub struct SdrJammingKeyData {
 
 // Aggregate protocol data struct
 #[derive(Debug, Clone, Default)]
-pub struct SerialProtocolData {
+pub struct SerialData {
     pub game_state_data: GameStateData,
     pub game_result_data: GameResultData,
     pub site_event_data: SiteEventData,

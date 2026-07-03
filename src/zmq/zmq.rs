@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use zmq2;
+
+use crate::serial::data_format::SerialData;
+use crate::zmq::data_format::ZmqData;
 pub fn zmq_init(
     thread_num: i32,
     pub_str: &str,
@@ -20,16 +23,24 @@ pub fn zmq_init(
         "Has been initialized pub and sub socket successfully",
     ))
 }
-pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
+pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &String) -> zmq2::Result<()> {
     pub_socket.send(msg, 0)?;
     Ok(())
 }
 pub fn zmq_recv(sub_socket: &zmq2::Socket) -> zmq2::Result<Vec<u8>> {
     sub_socket.recv_bytes(0)
 }
-pub fn start_transmmit(pub_socket: &zmq2::Socket) -> thread::JoinHandle<()> {
+pub fn start_zmq_pub(
+    pub_socket: &zmq2::Socket,
+    zmq_data: Arc<Mutex<ZmqData>>,
+    serial_data: Arc<Mutex<SerialData>>,
+) -> thread::JoinHandle<()> {
     todo!("ZMQ PUB thread not yet implemented")
 }
-pub fn start_receiver(sub_socket: &zmq2::Socket) -> thread::JoinHandle<()> {
+pub fn start_zmq_sub(
+    sub_socket: &zmq2::Socket,
+    zmq_data: Arc<Mutex<ZmqData>>,
+    serial_data: Arc<Mutex<SerialData>>,
+) -> thread::JoinHandle<()> {
     todo!("ZMQ SUB thread not yet implemented")
 }
