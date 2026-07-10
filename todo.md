@@ -69,6 +69,14 @@
 - deploy.sh autostart 配置修复（DEPLOY_ROOT 路径）
 - 检测阈值从 0.25 调至 0.35，减少虚警
 
+## 2026-07-10
+
+### 文档与代码清理
+- 移除 `TransmitRadarSync` ZMQ PUB 通路（结构体、常量、发送逻辑、标志位）
+- 新增强化 `docs/data-flow.md`：精简数据流文档，整合雷达激光定位链路
+- 新增 `docs/lidar-location-protocol.md`：LidarLocation ZMQ/JSON 协议文档
+- 更新 README：移除 radar_sync 引用，新增 LidarLocation 数据源
+
 ## 待办
 - [ ] 测试 Rerun 集成
 - [ ] 添加噪声流接口 (127.0.0.1:3000)

@@ -17,8 +17,9 @@ radar-egui 是比赛系统的统一操作面板：
 - Rust 工具链 (1.75+)
 - Linux (X11 或 Wayland)
 - 中文字体：LXGW WenKai Mono GB Screen、JetBrainsMono Nerd Font、Maple Mono
-- SDR 数据源运行在 `127.0.0.1:2000`
-- laser_guidance 已构建（UDP :5001 + 共享内存 `/laser_frame`）
+- SDR 数据源运行在 `tcp://127.0.0.1:5555`
+- laser_guidance 已构建（ZMQ :5556 + 共享内存 `/laser_frame`）
+- laser_guidance 或联盟机器人在 `tcp://127.0.0.1:5556` 发布 LidarLocation（见 `docs/lidar-location-protocol.md`）
 - Rerun viewer 已安装（`cargo install rerun-cli --locked` 或 `pip install rerun-sdk`）
 - 点云数据源写入 `/pointcloud_frame`（见 `docs/pointcloud-producer-spec.md`）
 
@@ -134,10 +135,18 @@ radar-egui 从 `alliance_radar_sdr` 通过 TCP 接收数据：
 
 ### 激光数据
 
-| 端口 | 方向 | 数据 |
-|------|------|------|
-| UDP `0.0.0.0:5001` | 接收 | LaserObservation 协议包 |
-| SHM `/laser_frame` | 读取 | RGB 视频帧（双缓冲） |
+| 端口/地址 | 方向 | 数据 |
+|-----------|------|------|
+| ZMQ `tcp://127.0.0.1:5556` | 接收 | ReceiveLaser JSON（cmd_id=0x2003） |
+| SHM `/laser_frame` | 读取 | BGR8 视频帧（双缓冲） |
+
+### 激光雷达定位数据
+
+| 端口/地址 | 方向 | 数据 |
+|-----------|------|------|
+| ZMQ `tcp://127.0.0.1:5556` | 接收 | ReceiveLidarLocation JSON（cmd_id=0x2001） |
+
+详见 `docs/lidar-location-protocol.md`。
 
 ## 许可证
 
@@ -178,6 +187,12 @@ src/
 │   ├── protocol.rs                  # LaserObservation + ModelCandidate 定义
 │   ├── observer.rs                  # [REMOVED] 原 UDP 监听，已由 ZMQ SUB 替代
 │   └── video.rs                     # 共享内存视频帧读取 (/laser_frame)
+│
+├── pointcloud/                      # 点云处理
+│   ├── mod.rs
+│   ├── protocol.rs                  # PointCloudFrame 定义 + SHM 解析
+│   ├── reader.rs                    # SHM /pointcloud_frame 读取
+│   └── rerun_visualizer.rs          # Rerun 3D 点云日志
 ```
 
 ## 数据包结构
@@ -214,7 +229,7 @@ ReceiveSdr 结构体对齐串口 data_format SDR 字段，拆为 6 个子结构�
 |------|----|------|------|
 | `ZMQ_PUB_GAME_STATE` | 0x1001 | Rust → C++/Python | TransmitGameState |
 | `ZMQ_PUB_RADAR_MARK` | 0x1002 | Rust → C++/Python | TransmitRadarMarkProcess |
-| `ZMQ_PUB_RADAR_SYNC` | 0x1003 | Rust → C++/Python | TransmitRadarSync |
+
 | `ZMQ_SUB_LIDAR_LOCATION` | 0x2001 | C++/Python → Rust | ReceiveLidarLocation |
 | `ZMQ_SUB_SDR` | 0x2002 | C++/Python → Rust | ReceiveSdr |
 | `ZMQ_SUB_LASER` | 0x2003 | C++/Python → Rust | ReceiveLaser |

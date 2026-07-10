@@ -4,13 +4,10 @@ use std::thread;
 use std::time::Duration;
 use zmq2;
 
-use crate::serial::data_format::{
-    SerialData, IDX_GAME_STATE, IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
-};
+use crate::serial::data_format::{SerialData, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS};
 use crate::zmq::data_format::{
     ReceiveLaser, ReceiveLidarLocation, ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess,
-    TransmitRadarSync, ZmqData, IDX_ZMQ_LASER, IDX_ZMQ_LIDAR, IDX_ZMQ_SDR, ZMQ_PUB_GAME_STATE,
-    ZMQ_PUB_RADAR_MARK, ZMQ_PUB_RADAR_SYNC,
+    ZmqData, IDX_ZMQ_LASER, IDX_ZMQ_LIDAR, IDX_ZMQ_SDR, ZMQ_PUB_GAME_STATE, ZMQ_PUB_RADAR_MARK,
 };
 pub fn zmq_init_pub(thread_num: i32, bind_addr: &str) -> zmq2::Result<zmq2::Socket> {
     let context = zmq2::Context::new();
@@ -52,11 +49,6 @@ pub fn start_zmq_pub(
             }
         }
         if let Some(ref data) = zmq_lock.radar_mark.take() {
-            if let Ok(msg) = serde_json::to_string(data) {
-                zmq_send(&pub_socket, &msg).ok();
-            }
-        }
-        if let Some(ref data) = zmq_lock.radar_sync.take() {
             if let Ok(msg) = serde_json::to_string(data) {
                 zmq_send(&pub_socket, &msg).ok();
             }
@@ -143,18 +135,6 @@ pub fn zmq_serial_update(zmq_data: &Arc<Mutex<ZmqData>>, serial_data: &Arc<Mutex
             ally_aerial_countered: src.ally_aerial_countered,
         });
         serial_lock.serial_produced[IDX_RADAR_MARK_PROCESS] = 0;
-    }
-
-    if serial_lock.serial_produced[IDX_RADAR_AUTONOMOUS_DECISION_SYNC] != 0 {
-        let src = &serial_lock.radar_autonomous_decision_sync_data;
-        zmq_lock.radar_sync = Some(TransmitRadarSync {
-            cmd_id: ZMQ_PUB_RADAR_SYNC,
-            double_weakness_chance: src.double_weakness_chance,
-            double_weakness_active: src.double_weakness_active,
-            encryption_rank: src.encryption_rank,
-            key_modifiable: src.key_modifiable,
-        });
-        serial_lock.serial_produced[IDX_RADAR_AUTONOMOUS_DECISION_SYNC] = 0;
     }
 }
 pub fn zmq_sdr_lidar_fusion(zmq_data: &Arc<Mutex<ZmqData>>) {
