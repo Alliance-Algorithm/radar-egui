@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 // PUB (Rust → C++/Python)
 pub const ZMQ_PUB_GAME_STATE: u16 = 0x1001;
 pub const ZMQ_PUB_RADAR_MARK: u16 = 0x1002;
-pub const ZMQ_PUB_RADAR_SYNC: u16 = 0x1003;
 
 // SUB (C++/Python → Rust)
 pub const ZMQ_SUB_LIDAR_LOCATION: u16 = 0x2001;
@@ -48,16 +47,6 @@ pub struct TransmitRadarMarkProcess {
     pub opponent_aerial_countered: u8,
     pub ally_aerial_targeted: u8,
     pub ally_aerial_countered: u8,
-}
-
-/// Radar autonomous decision sync broadcast (ZMQ_PUB_RADAR_SYNC)
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TransmitRadarSync {
-    pub cmd_id: u16,
-    pub double_weakness_chance: u8,
-    pub double_weakness_active: u8,
-    pub encryption_rank: u8,
-    pub key_modifiable: u8,
 }
 
 // ── SUB receive (C++/Python → ZMQ → Rust) ──
@@ -239,7 +228,6 @@ pub struct ZmqData {
     // PUB: data pending transmit to C++/Python (filled from SerialData)
     pub game_state: Option<TransmitGameState>,
     pub radar_mark: Option<TransmitRadarMarkProcess>,
-    pub radar_sync: Option<TransmitRadarSync>,
     pub zmq_produce: [u8; 6],
 }
 
@@ -248,4 +236,3 @@ pub const IDX_ZMQ_LASER: usize = 1;
 pub const IDX_ZMQ_LIDAR: usize = 2;
 pub const IDX_ZMQ_GAME_STATE: usize = 3;
 pub const IDX_ZMQ_RADAR_MARK: usize = 4;
-pub const IDX_ZMQ_RADAR_SYNC: usize = 5;

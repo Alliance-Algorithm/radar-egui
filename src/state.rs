@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::laser::protocol::LaserObservation;
 use crate::serial::data_format::SerialData;
 use crate::zmq::data_format::{
-    ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, TransmitRadarSync, ZmqData,
+    ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, ZmqData,
 };
 
 #[derive(Clone)]
@@ -56,12 +56,6 @@ impl ZmqWriter {
     pub fn publish_radar_mark(&self, data: TransmitRadarMarkProcess) {
         if let Ok(mut state) = self.inner.lock() {
             state.radar_mark = Some(data);
-        }
-    }
-
-    pub fn publish_radar_sync(&self, data: TransmitRadarSync) {
-        if let Ok(mut state) = self.inner.lock() {
-            state.radar_sync = Some(data);
         }
     }
 }
