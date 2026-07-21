@@ -358,7 +358,6 @@ impl RadarApp {
                 ui.add_space(14.0);
                 Self::white_card(ui, "比赛进程", |ui| {
                     let sdr_ok = self.process_control.is_sdr_running();
-                    let unity_ok = self.process_control.is_unity_running();
                     let start_all_pending = self.process_control.has_pending_start_all();
 
                     ui.horizontal(|ui| {
@@ -384,33 +383,6 @@ impl RadarApp {
                                     self.process_control.start_sdr(self.enemy_color.sdr_arg())
                                 {
                                     log::error!("Failed to start SDR: {}", e);
-                                }
-                            }
-                        });
-                    });
-                    ui.add_space(2.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("Radar:")
-                                .color(theme::text_muted())
-                                .size(13.0),
-                        );
-                        Self::status_chip(ui, unity_ok, if unity_ok { "Running" } else { "Idle" });
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if unity_ok {
-                                if ui
-                                    .add_sized([72.0, 24.0], egui::Button::new("Stop"))
-                                    .clicked()
-                                {
-                                    self.process_control.stop_unity();
-                                }
-                            } else if ui
-                                .add_sized([72.0, 24.0], egui::Button::new("Start"))
-                                .clicked()
-                            {
-                                if let Err(e) = self.process_control.start_unity() {
-                                    log::error!("Failed to start Unity: {}", e);
                                 }
                             }
                         });
@@ -501,7 +473,7 @@ impl RadarApp {
                         }
                     }
 
-                    if sdr_ok || unity_ok || self.process_control.is_running() {
+                    if sdr_ok || comp_ok || self.process_control.is_running() {
                         ui.add_space(6.0);
                         if ui
                             .add_sized([ui.available_width(), 30.0], egui::Button::new("Stop All"))
