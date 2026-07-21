@@ -19,6 +19,7 @@ pub const RADAR_MARK_PROCESS_CMD_ID: u16 = 0x020C;
 pub const RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID: u16 = 0x020E;
 pub const ROBOT_INTERACTION_CMD_ID: u16 = 0x0301;
 pub const RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID: u16 = 0x0121;
+pub const RADAR_LOCAL_COMPUTATION_CMD_ID: u16 = 0x0122;
 pub const MINIMAP_RECEIVE_RADAR_CMD_ID: u16 = 0x0305;
 pub const SDR_ENEMY_ROBOT_POSITION_CMD_ID: u16 = 0x0A01;
 pub const SDR_ENEMY_ROBOT_BLOOD_CMD_ID: u16 = 0x0A02;
@@ -258,6 +259,52 @@ pub struct RadarAutonomousDecisionData {
     pub radar_cmd: u8,
     pub password_cmd: u8,
     pub password: [u8; 6],
+}
+
+// ─── Radar local computation data (0x0301 sub-cmd 0x0122) ───
+// Payload layout: 10 (ammo) + 8 (economy) + 41 (gain+states) + 1 (drone) = 60 bytes
+// Sent via radar → 0x0301 robot interaction → 0x0310 custom client
+
+#[derive(Debug, Clone, Default)]
+pub struct RadarLocalComputationData {
+    /// [0..10]  enemy robot allowed ammo (5 robots × u16 LE)
+    pub ammo: SdrEnemyRobotRemainingAmmoData,
+    /// [10..18) enemy economy + site occupation status
+    pub economy: SdrEnemyRobotOverallStateData,
+    /// [18..59) enemy robot gain buffs + postures + alive states
+    pub gain: SdrEnemyRobotGainData,
+    /// [59]     enemy drone counter-progress (percentage, 0-100)
+    pub drone_counter_progress: u8,
+}
+
+impl RadarLocalComputationData {
+    /// Parse from 60-byte subcontext_data slice.
+    pub fn from_slice(data: &[u8]) -> Option<Self> {
+        if data.len() < 60 {
+            return None;
+        }
+        let (_, ammo) =
+            SdrEnemyRobotRemainingAmmoData::from_bytes((&data[0..10], 0)).ok()?;
+        let (_, economy) =
+            SdrEnemyRobotOverallStateData::from_bytes((&data[10..18], 0)).ok()?;
+        let (_, gain) =
+            SdrEnemyRobotGainData::from_bytes((&data[18..59], 0)).ok()?;
+        Some(Self {
+            ammo,
+            economy,
+            gain,
+            drone_counter_progress: data[59],
+        })
+    }
+
+    /// Serialize to 60-byte Vec for transmission.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, DekuError> {
+        let mut bytes = self.ammo.to_bytes()?;
+        bytes.extend(self.economy.to_bytes()?);
+        bytes.extend(self.gain.to_bytes()?);
+        bytes.push(self.drone_counter_progress);
+        Ok(bytes)
+    }
 }
 
 // cmd_id = 0x0305, data_len = 48
@@ -501,6 +548,7 @@ pub struct SerialData {
     pub sdr_enemy_robot_overall_state_data: SdrEnemyRobotOverallStateData,
     pub sdr_enemy_robot_gain_data: SdrEnemyRobotGainData,
     pub sdr_jamming_key_data: SdrJammingKeyData,
+    pub radar_local_computation_data: RadarLocalComputationData,
     pub serial_produced: [u8; 15],
     pub zmq_produced: [u8; 15],
 }
