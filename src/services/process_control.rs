@@ -44,6 +44,10 @@ impl ProcessControl {
         self.script_runner.is_unity_running()
     }
 
+    pub fn is_competition_running(&self) -> bool {
+        self.script_runner.is_competition_running()
+    }
+
     pub fn has_pending_start_all(&self) -> bool {
         self.pending_start_all.is_some()
     }
@@ -101,6 +105,14 @@ impl ProcessControl {
 
     pub fn stop_unity(&mut self) {
         self.script_runner.stop_unity();
+    }
+
+    pub fn start_competition(&mut self, side: &str) -> io::Result<()> {
+        self.script_runner.start_competition(side)
+    }
+
+    pub fn stop_competition(&mut self) {
+        self.script_runner.stop_competition();
     }
 
     pub fn schedule_start_all(

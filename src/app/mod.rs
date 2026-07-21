@@ -95,6 +95,7 @@ pub struct RadarApp {
     process_control: ProcessControl,
     camera_device: String,
     enemy_color: EnemyColor,
+    competition_side: String,
     stream_on_start: bool,
     record_on_start: bool,
 }
@@ -160,6 +161,7 @@ impl Default for RadarApp {
             process_control: ProcessControl::new(),
             camera_device: "/dev/laser_capture".to_string(),
             enemy_color: EnemyColor::Auto,
+            competition_side: "red".to_string(),
             stream_on_start: true,
             record_on_start: false,
         }
