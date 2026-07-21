@@ -389,35 +389,35 @@ impl RadarApp {
                     });
                     ui.add_space(2.0);
 
-                    // Competition (ROS2: camera + lidar + fusion + bridge)
-                    let comp_ok = self.process_control.is_competition_running();
+                    // Radar (ROS2: camera + lidar + fusion + bridge)
+                    let radar_ok = self.process_control.is_radar_running();
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new("Competition:")
+                            egui::RichText::new("Radar:")
                                 .color(theme::text_muted())
                                 .size(13.0),
                         );
-                        Self::status_chip(ui, comp_ok, if comp_ok { "Running" } else { "Idle" });
+                        Self::status_chip(ui, radar_ok, if radar_ok { "Running" } else { "Idle" });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if comp_ok {
+                            if radar_ok {
                                 if ui
                                     .add_sized([72.0, 24.0], egui::Button::new("Stop"))
                                     .clicked()
                                 {
-                                    self.process_control.stop_competition();
+                                    self.process_control.stop_radar();
                                 }
                             } else {
-                                egui::ComboBox::from_id_salt("comp_side")
-                                    .selected_text(self.competition_side.as_str())
+                                egui::ComboBox::from_id_salt("radar_side")
+                                    .selected_text(self.radar_side.as_str())
                                     .width(48.0)
                                     .show_ui(ui, |ui| {
                                         ui.selectable_value(
-                                            &mut self.competition_side,
+                                            &mut self.radar_side,
                                             "red".to_string(),
                                             "Red",
                                         );
                                         ui.selectable_value(
-                                            &mut self.competition_side,
+                                            &mut self.radar_side,
                                             "blue".to_string(),
                                             "Blue",
                                         );
@@ -428,9 +428,9 @@ impl RadarApp {
                                 {
                                     if let Err(e) = self
                                         .process_control
-                                        .start_competition(&self.competition_side)
+                                        .start_radar(&self.radar_side)
                                     {
-                                        log::error!("Failed to start Competition: {}", e);
+                                        log::error!("Failed to start Radar: {}", e);
                                     }
                                 }
                             }
@@ -473,7 +473,7 @@ impl RadarApp {
                         }
                     }
 
-                    if sdr_ok || comp_ok || self.process_control.is_running() {
+                    if sdr_ok || radar_ok || self.process_control.is_running() {
                         ui.add_space(6.0);
                         if ui
                             .add_sized([ui.available_width(), 30.0], egui::Button::new("Stop All"))

@@ -1,7 +1,7 @@
 //! 比赛组件进程管理模块
 //!
 //! 从 radar-egui 中 spawn 比赛所需的三个外部进程：
-//!   - ROS2 Competition  (alliance_radar_location_lidar: camera + lidar + fusion + bridge)
+//!   - ROS2 Radar       (alliance_radar_location_lidar: camera + lidar + fusion + bridge)
 //!   - laser_guidance  脚本 (competition / preview / stream / record)
 //!   - SDR 数据桥接    (alliance_radar_sdr/tcp/tcp_launch.py)
 
@@ -13,10 +13,10 @@ const LASER_GUIDANCE_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
 
-/// ROS2 competition launch 所在仓库根目录
-const COMPETITION_REPO: &str = "../alliance_radar_location_lidar";
-/// competition launch 的 ROS2 workspace
-const COMPETITION_WS: &str = "ros_ws";
+/// ROS2 radar launch 所在仓库根目录
+const RADAR_REPO: &str = "../alliance_radar_location_lidar";
+/// radar launch 的 ROS2 workspace
+const RADAR_WS: &str = "ros_ws";
 
 // ── LaserScript ──────────────────────────────────────────────────────────────
 
@@ -55,8 +55,8 @@ impl LaserScript {
 // ── ScriptRunner ─────────────────────────────────────────────────────────────
 
 pub struct ScriptRunner {
-    // ROS2 Competition
-    competition_child: Option<Child>,
+    // ROS2 Radar
+    radar_child: Option<Child>,
 
     // Laser
     child: Option<Child>,
@@ -69,20 +69,20 @@ pub struct ScriptRunner {
 impl ScriptRunner {
     pub fn new() -> Self {
         Self {
-            competition_child: None,
+            radar_child: None,
             child: None,
             active: None,
             sdr_child: None,
         }
     }
 
-    // ── ROS2 Competition ────────────────────────────────────────────────────
+    // ── ROS2 Radar ────────────────────────────────────────────────────
 
-    pub fn start_competition(&mut self, side: &str) -> io::Result<()> {
-        self.stop_competition();
+    pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
+        self.stop_radar();
 
-        let repo = PathBuf::from(COMPETITION_REPO);
-        let ws = repo.join(COMPETITION_WS);
+        let repo = PathBuf::from(RADAR_REPO);
+        let ws = repo.join(RADAR_WS);
         let cmd = format!(
             "source /opt/ros/jazzy/setup.zsh && \
              source {}/install/setup.zsh && \
@@ -99,23 +99,23 @@ impl ScriptRunner {
             .spawn()?;
 
         log::info!(
-            "Started ROS2 competition (side={side}, pid={})",
+            "Started Radar (side={side}, pid={})",
             child.id()
         );
-        self.competition_child = Some(child);
+        self.radar_child = Some(child);
         Ok(())
     }
 
-    pub fn stop_competition(&mut self) {
-        if let Some(mut child) = self.competition_child.take() {
+    pub fn stop_radar(&mut self) {
+        if let Some(mut child) = self.radar_child.take() {
             let _ = child.kill();
             let _ = child.wait();
-            log::info!("Stopped ROS2 competition");
+            log::info!("Stopped Radar");
         }
     }
 
-    pub fn is_competition_running(&self) -> bool {
-        self.competition_child.is_some()
+    pub fn is_radar_running(&self) -> bool {
+        self.radar_child.is_some()
     }
 
     // ── Laser ────────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ impl ScriptRunner {
     }
 
     pub fn stop_all(&mut self) {
-        self.stop_competition();
+        self.stop_radar();
         self.stop();
         self.stop_sdr();
     }
