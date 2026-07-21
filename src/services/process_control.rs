@@ -40,8 +40,8 @@ impl ProcessControl {
         self.script_runner.is_sdr_running()
     }
 
-    pub fn is_competition_running(&self) -> bool {
-        self.script_runner.is_competition_running()
+    pub fn is_radar_running(&self) -> bool {
+        self.script_runner.is_radar_running()
     }
 
     pub fn has_pending_start_all(&self) -> bool {
@@ -95,12 +95,12 @@ impl ProcessControl {
         self.script_runner.stop_sdr();
     }
 
-    pub fn start_competition(&mut self, side: &str) -> io::Result<()> {
-        self.script_runner.start_competition(side)
+    pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
+        self.script_runner.start_radar(side)
     }
 
-    pub fn stop_competition(&mut self) {
-        self.script_runner.stop_competition();
+    pub fn stop_radar(&mut self) {
+        self.script_runner.stop_radar();
     }
 
     pub fn schedule_start_all(
