@@ -40,10 +40,6 @@ impl ProcessControl {
         self.script_runner.is_sdr_running()
     }
 
-    pub fn is_unity_running(&self) -> bool {
-        self.script_runner.is_unity_running()
-    }
-
     pub fn is_competition_running(&self) -> bool {
         self.script_runner.is_competition_running()
     }
@@ -97,14 +93,6 @@ impl ProcessControl {
     pub fn stop_sdr(&mut self) {
         self.cancel_pending_start_all();
         self.script_runner.stop_sdr();
-    }
-
-    pub fn start_unity(&mut self) -> io::Result<()> {
-        self.script_runner.start_unity()
-    }
-
-    pub fn stop_unity(&mut self) {
-        self.script_runner.stop_unity();
     }
 
     pub fn start_competition(&mut self, side: &str) -> io::Result<()> {

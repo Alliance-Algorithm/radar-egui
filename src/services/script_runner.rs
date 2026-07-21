@@ -1,10 +1,9 @@
 //! 比赛组件进程管理模块
 //!
-//! 从 radar-egui 中 spawn 比赛所需的四个外部进程：
+//! 从 radar-egui 中 spawn 比赛所需的三个外部进程：
 //!   - ROS2 Competition  (alliance_radar_location_lidar: camera + lidar + fusion + bridge)
 //!   - laser_guidance  脚本 (competition / preview / stream / record)
 //!   - SDR 数据桥接    (alliance_radar_sdr/tcp/tcp_launch.py)
-//!   - Unity RADAR     (RADAR_APP/RADAR.x86_64)
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,7 +12,6 @@ use std::process::{Child, Command, Stdio};
 const LASER_GUIDANCE_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
-const UNITY_BIN: &str = "../RADAR_APP/RADAR.x86_64";
 
 /// ROS2 competition launch 所在仓库根目录
 const COMPETITION_REPO: &str = "../alliance_radar_location_lidar";
@@ -66,9 +64,6 @@ pub struct ScriptRunner {
 
     // SDR bridge
     sdr_child: Option<Child>,
-
-    // Unity RADAR
-    unity_child: Option<Child>,
 }
 
 impl ScriptRunner {
@@ -78,7 +73,6 @@ impl ScriptRunner {
             child: None,
             active: None,
             sdr_child: None,
-            unity_child: None,
         }
     }
 
@@ -236,40 +230,10 @@ impl ScriptRunner {
         self.sdr_child.is_some()
     }
 
-    // ── Unity RADAR ──────────────────────────────────────────────────────────
-
-    pub fn start_unity(&mut self) -> io::Result<()> {
-        self.stop_unity();
-
-        let child = Command::new(UNITY_BIN)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .stdin(Stdio::null())
-            .spawn()?;
-
-        log::info!("Started Unity RADAR (pid={})", child.id());
-        self.unity_child = Some(child);
-        Ok(())
-    }
-
-    pub fn stop_unity(&mut self) {
-        if let Some(mut child) = self.unity_child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-            log::info!("Stopped Unity RADAR");
-        }
-    }
-
-    pub fn is_unity_running(&self) -> bool {
-        self.unity_child.is_some()
-    }
-
-    /// 停止全部进程
     pub fn stop_all(&mut self) {
         self.stop_competition();
         self.stop();
         self.stop_sdr();
-        self.stop_unity();
     }
 }
 
@@ -370,7 +334,6 @@ mod tests {
         let runner = ScriptRunner::new();
         assert!(!runner.is_running());
         assert!(!runner.is_sdr_running());
-        assert!(!runner.is_unity_running());
         assert!(runner.active().is_none());
     }
 }
