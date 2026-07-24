@@ -2,14 +2,78 @@
 
 基于 Rust + egui 的 RoboMaster 比赛实时雷达 HUD，承担**比赛顶层进程控制**。
 
+## 架构设计
+
+### Tokio 在本项目中的角色
+
+本项目**不使用** `#[tokio::main]`，egui 主线程没有 Tokio 运行时。运行时分层：
+
+- **主线程**：`eframe` 事件循环，每帧读取 `Arc<Mutex<T>>` 共享状态渲染 UI
+- **ZMQ 线程**：`std::thread` 阻塞循环，直接调用 `zmq2` 同步 API
+- **SHM 线程**：`std::thread` + 独立 Tokio 运行时，通过 `select!` 实现定时轮询与优雅关闭
+
+**1. 独立运行时 + `block_on` 驱动**
+
+```rust
+fn spawn_runtime_task<M, F>(make_future: M)
+where M: FnOnce() -> F + Send + 'static, F: Future<Output = ()> + 'static
+{
+    thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new();
+        rt.block_on(make_future());  // 阻塞当前线程驱动 future
+    });
+}
+```
+
+每个 SHM 子系统拥有独立的 OS 线程 + 独立的 Tokio 运行时，互不干扰。
+
+**2. `select!` 协作式取消**
+
+所有异步任务遵循同一关闭模式：
+
+```rust
+loop {
+    tokio::select! {
+        _ = interval.tick() => { /* 轮询 SHM 帧 */ }
+        _ = shutdown.changed() => return,  // 优雅退出
+    }
+}
+```
+
+`select!` 同时等待定时器和关闭信号，第一个 Ready 的分支执行。未被选中的 Future 被 drop，实现协作式取消——task 只在 `.await` 点响应关闭，保证资源安全清理。
+
+**3. `watch` Channel 状态广播**
+
+`tokio::sync::watch` 用于关闭信号传递：只保留最新值，多个 Receiver 共享同一信号，`changed()` 在值真正变化时才 Ready。比 `mpsc` 更适合"状态标志"场景。
+
+**4. 懒启动 Runtime**
+
+Video / PointCloud 的 Tokio runtime 在用户切换到对应标签时才创建（`ensure_started`），未使用的子系统零开销。
+
+### 为什么不全用 Tokio
+
+| 子系统 | 选择 | 原因 |
+|--------|------|------|
+| ZMQ SUB/PUB | `std::thread` | `zmq2` 是同步阻塞库，`recv`/`send` 天然阻塞，用 Tokio 反而需要 `spawn_blocking` 桥接 |
+| Serial RX/TX | `std::thread` | 同理，`serial2` 是同步 API |
+| Video / PointCloud SHM | Tokio | 需要定时轮询 + 优雅关闭 + 退避重连，`select!` + `watch` 提供最干净的实现 |
+
+### 共享状态：`Arc<Mutex<T>>`
+
+UI 每帧需要最新数据快照。`std::sync::Mutex` 在写少读多场景下竞争极低，比 channel 更简单——不需要"消费即删除"的语义，只需要"每次读都是最新值"。
+
+### 双标志解耦
+
+串口解析和 ZMQ 收发在不同线程，通过 `serial_produced[]` / `zmq_produced[]` 脏标志解耦——生产者写入数据后置位，消费者轮询到标志后消费并清零。无需锁竞争，无需阻塞耦合。
+
 ## 简介
 
 radar-egui 是比赛系统的统一操作面板：
 
 - **Radar 标签**：场地点云 3D 可视化，通过 Rerun 引擎渲染，共享内存 `/pointcloud_frame` 读取
-- **SDR 标签**：TCP 接入 SDR 信号流，实时显示 RobotMaster 战场状态
-- **Laser 标签**：UDP 接收激光引导观测数据，共享内存渲染视频画面
-- **进程控制**：一键启动 SDR 桥接、laser_guidance 守护进程、Unity RADAR
+- **SDR 标签**：ZMQ 接入 SDR 信号流，实时显示 RobotMaster 战场状态
+- **Laser 标签**：ZMQ 接收激光引导观测数据，共享内存渲染视频画面
+- **进程控制**：一键启动 SDR 桥接、laser_guidance 守护进程、ROS2 Radar（`alliance_radar_location_lidar`）
 - **开局配置**：敌方颜色选择、推流/内录开关，启动时自动同步到 daemon
 
 ## 环境要求
@@ -17,9 +81,10 @@ radar-egui 是比赛系统的统一操作面板：
 - Rust 工具链 (1.75+)
 - Linux (X11 或 Wayland)
 - 中文字体：LXGW WenKai Mono GB Screen、JetBrainsMono Nerd Font、Maple Mono
-- SDR 数据源运行在 `tcp://127.0.0.1:5555`
+- SDR 数据源运行在 `tcp://127.0.0.1:5555`（`alliance_radar_sdr`）
 - laser_guidance 已构建（ZMQ :5556 + 共享内存 `/laser_frame`）
-- laser_guidance 或联盟机器人在 `tcp://127.0.0.1:5556` 发布 LidarLocation（见 `docs/lidar-location-protocol.md`）
+- `alliance_radar_location_lidar` 已构建（ROS2 Jazzy workspace `ros_ws`，发布 LidarLocation 至 `tcp://127.0.0.1:5556`，见 `docs/lidar-location-protocol.md`）
+- 进程控制默认从相对路径 `../alliance_radar_location_lidar` 启动：`ros2 launch radar_bringup competition.launch.py side:=<red|blue>`
 - Rerun viewer 已安装（`cargo install rerun-cli --locked` 或 `pip install rerun-sdk`）
 - 点云数据源写入 `/pointcloud_frame`（见 `docs/pointcloud-producer-spec.md`）
 
@@ -80,9 +145,9 @@ rerun assets/map.rrd
 - **左侧模式栏**：Laser / SDR / Radar 切换、深浅色主题、数据统计
 - **中央主舞台**：Radar 点云状态面板，SDR 小地图（拖拽/缩放），Laser 视频画面（16:9）
 - **Laser 右侧面板**：
-  - 数据源 — UDP 连接状态与重连
+  - 数据源 — ZMQ 连接状态（自动重连）
   - 脚本控制 — 敌方颜色下拉、推流/内录复选框、laser_guidance 启动按钮
-  - 比赛进程 — SDR/Unity 独立启停、Start All / Stop All
+  - 比赛进程 — SDR / ROS2 Radar（`alliance_radar_location_lidar`）独立启停、Start All / Stop All
   - 流控制 — 运行时 Stream on/off 开关
   - 分析面板 — 目标检测/模型候选
 
