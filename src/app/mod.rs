@@ -224,10 +224,6 @@ impl RadarApp {
         self.last_logged_radar_version = 0;
     }
 
-    fn reconnect_laser(&mut self) {}
-
-    fn ensure_laser_started(&mut self) {}
-
     fn ensure_video_started(&mut self) {
         self.video_runtime.ensure_started();
     }
@@ -337,7 +333,7 @@ impl eframe::App for RadarApp {
             ActiveTab::Serial => self.show_serial_workspace(ctx),
         }
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 }
 
