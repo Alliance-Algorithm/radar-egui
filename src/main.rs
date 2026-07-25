@@ -7,6 +7,7 @@ mod serial;
 mod services;
 mod state;
 mod theme;
+mod ui_layout;
 mod widgets;
 mod zmq;
 
