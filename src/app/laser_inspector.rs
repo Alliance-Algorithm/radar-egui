@@ -15,7 +15,7 @@ impl RadarApp {
         let obs = laser_snapshot.map(|s| &s.observation);
 
         white_card(ui, "数据源", |ui| {
-            status_chip(ui, laser_listening, "Laser UDP Listening");
+            status_chip(ui, laser_listening, "Laser ZMQ");
             ui.add_space(8.0);
             status_chip(
                 ui,
@@ -33,15 +33,6 @@ impl RadarApp {
                 .spacing([12.0, 10.0])
                 .show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new("Port")
-                            .color(theme::text_muted())
-                            .size(13.0),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.zmq_addr).desired_width(f32::INFINITY),
-                    );
-                    ui.end_row();
-                    ui.label(
                         egui::RichText::new("Camera")
                             .color(theme::text_muted())
                             .size(13.0),
@@ -52,16 +43,6 @@ impl RadarApp {
                     );
                     ui.end_row();
                 });
-            ui.add_space(12.0);
-            if ui
-                .add_sized(
-                    [ui.available_width(), 32.0],
-                    egui::Button::new("Reconnect laser listener"),
-                )
-                .clicked()
-            {
-                self.reconnect_laser();
-            }
         });
 
         ui.add_space(14.0);
@@ -154,12 +135,7 @@ impl RadarApp {
                 );
             } else {
                 for cand in &candidates {
-                    let class_color = match cand.class_id {
-                        0 => theme::MAUVE,
-                        1 => theme::RED,
-                        2 => theme::BLUE,
-                        _ => theme::text_faint(),
-                    };
+                    let class_color = theme::class_color(cand.class_id);
                     egui::Frame::new()
                         .fill(theme::card_bg_muted())
                         .stroke(egui::Stroke::new(1.0, theme::border()))
@@ -167,29 +143,14 @@ impl RadarApp {
                         .inner_margin(egui::Margin::symmetric(12, 8))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let cls_name = match cand.class_id {
-                                    0 => "armor",
-                                    1 => "car",
-                                    _ => "?",
-                                };
                                 ui.label(
                                     egui::RichText::new(format!(
-                                        "{} · {}",
+                                        "{} · {:.2}",
                                         LaserObservation::class_name(cand.class_id),
-                                        cls_name,
+                                        cand.score,
                                     ))
                                     .color(class_color)
                                     .size(13.0),
-                                );
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.label(
-                                            egui::RichText::new(format!("{:.2}", cand.score))
-                                                .color(theme::text())
-                                                .size(14.0),
-                                        );
-                                    },
                                 );
                             });
                             ui.add_space(2.0);

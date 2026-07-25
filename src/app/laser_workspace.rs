@@ -4,15 +4,15 @@ use crate::theme;
 
 impl RadarApp {
     pub(super) fn show_laser_workspace(&mut self, ctx: &egui::Context) {
-        self.ensure_laser_started();
         self.ensure_video_started();
         self.laser_video_texture.refresh(ctx, &self.video_feed);
 
         let laser_listening = self.zmq_sub.is_started();
+        let laser_snapshot = self.laser_feed.snapshot();
+        let laser_snapshot_stage = laser_snapshot.clone();
 
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "laser_inspector", SIDE_LASER, |app, ui| {
-            let laser_snapshot = app.laser_feed.snapshot();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -39,9 +39,8 @@ impl RadarApp {
                 });
             },
             |app, ui| {
-                let laser_snapshot = app.laser_feed.snapshot();
                 let texture = app.laser_video_texture.texture().cloned();
-                let live_obs = laser_snapshot.as_ref().map(|s| &s.observation);
+                let live_obs = laser_snapshot_stage.as_ref().map(|s| &s.observation);
                 app.show_laser_stage(ui, live_obs, texture.as_ref());
             },
         );
