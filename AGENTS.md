@@ -88,10 +88,10 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 
 ### 进程内（`RadarApp::default`）
 
-1. 创建共享状态：`ZmqData` / `SerialData` / Laser / Video / PointCloud reader-writer pairs  
-2. **立即** `ZmqSubRuntime::start` + `ZmqPubRuntime::start`（`std::thread` + 阻塞 `zmq2`，**不是** Tokio 任务）  
-3. `VideoRuntime` / `PointCloudRuntime` 只构造，进对应标签时 `ensure_started`  
-4. `ProcessControl` 空闲，等 UI 按钮  
+1. 创建共享状态：`ZmqData` / `SerialData` / Laser / Video / PointCloud reader-writer pairs
+2. **立即** `ZmqSubRuntime::start` + `ZmqPubRuntime::start`（`std::thread` + 阻塞 `zmq2`，**不是** Tokio 任务）
+3. `VideoRuntime` / `PointCloudRuntime` 只构造，进对应标签时 `ensure_started`
+4. `ProcessControl` 空闲，等 UI 按钮
 
 ### 外部进程（UI）
 
@@ -105,10 +105,10 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 
 ## 运行时模型（Tokio）
 
-- **依赖有** `tokio` full；**主 I/O 路径不全是 Tokio**  
-- ZMQ / Serial：`std::thread` 阻塞循环  
-- Video / PointCloud：`spawn_runtime_task` → 每任务一个 OS 线程 + **独立** `tokio::runtime::Runtime::new().block_on(...)`  
-- 关闭：Video/PointCloud 用 `watch`；ZMQ 的 `AtomicBool stop` 与工作循环未完全打通（已知缺口）  
+- **依赖有** `tokio` full；**主 I/O 路径不全是 Tokio**
+- ZMQ / Serial：`std::thread` 阻塞循环
+- Video / PointCloud：`spawn_runtime_task` → 每任务一个 OS 线程 + **独立** `tokio::runtime::Runtime::new().block_on(...)`
+- 关闭：Video/PointCloud 用 `watch`；ZMQ 的 `AtomicBool stop` 与工作循环未完全打通（已知缺口）
 
 ## 模块职责
 
@@ -116,51 +116,51 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 - eframe 入口，窗口 1280×720，`env_logger`
 
 ### `app/`
-- `RadarApp`：三标签（Laser / SDR / Radar）、主题、连接状态、进程控制 UI  
-- `view.rs`：侧边栏与 Start/Stop  
-- `connection.rs`：按 ZMQ SDR 快照更新连接状态 / Rerun 日志  
+- `RadarApp`：三标签（Laser / SDR / Radar）、主题、连接状态、进程控制 UI
+- `view.rs`：侧边栏与 Start/Stop
+- `connection.rs`：按 ZMQ SDR 快照更新连接状态 / Rerun 日志
 
 ### `state.rs`
-- `ZmqReader`/`ZmqWriter`、`SerialReader`/`SerialWriter`、Laser / PointCloud 读写端  
-- 统一 `Arc<Mutex<T>>` 最新值快照  
+- `ZmqReader`/`ZmqWriter`、`SerialReader`/`SerialWriter`、Laser / PointCloud 读写端
+- 统一 `Arc<Mutex<T>>` 最新值快照
 
 ### `runtime/mod.rs`
-- `ZmqSubRuntime` / `ZmqPubRuntime`  
-- `VideoRuntime` / `PointCloudRuntime` + `spawn_runtime_task`  
+- `ZmqSubRuntime` / `ZmqPubRuntime`
+- `VideoRuntime` / `PointCloudRuntime` + `spawn_runtime_task`
 
 ### `services/`
-- `script_runner.rs`：spawn/kill SDR、ROS2 Radar、laser 脚本  
-- `process_control.rs`：Start All 延迟编排、FIFO 命令  
+- `script_runner.rs`：spawn/kill SDR、ROS2 Radar、laser 脚本
+- `process_control.rs`：Start All 延迟编排、FIFO 命令
 
 ### `zmq/`
-- `data_format.rs`：JSON 消息与 `ZmqData`  
-- `zmq.rs`：init/send/recv、SUB/PUB 线程、`zmq_serial_update` 桥接  
+- `data_format.rs`：JSON 消息与 `ZmqData`
+- `zmq.rs`：init/send/recv、SUB/PUB 线程、`zmq_serial_update` 桥接
 
 ### `serial/`
-- DJI 裁判协议：parser / package / CRC / deku 结构体、`serial_produced`/`zmq_produced`  
-- `start_receiver` / `start_transmitter` **已实现，app 未调用**  
+- DJI 裁判协议：parser / package / CRC / deku 结构体、`serial_produced`/`zmq_produced`
+- `start_receiver` / `start_transmitter` **已实现，app 未调用**
 
 ### `laser/` / `pointcloud/` / `widgets/`
-- 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板  
-- 可选 `rerun` feature 做 3D 可视化  
+- 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板
+- 可选 `rerun` feature 做 3D 可视化
 
 ## 关键设计决策
 
 ### 为什么用 egui 而不是 Rerun 做实时 HUD
-- Rerun 日志优先，不适合操作面板  
-- egui 即时模式，约 10 fps 足够  
-- Rerun 作可选 3D/录制  
+- Rerun 日志优先，不适合操作面板
+- egui 即时模式，约 10 fps 足够
+- Rerun 作可选 3D/录制
 
 ### 为什么用 Arc\<Mutex\<T\>\> 而不是 channel
-- UI 每帧要最新快照；channel 易丢最新值  
-- 写少读多，Mutex 竞争可接受  
+- UI 每帧要最新快照；channel 易丢最新值
+- 写少读多，Mutex 竞争可接受
 
 ### 为什么串口用脏标志而不是直接 channel 桥 ZMQ
-- `serial_produced[]` / `zmq_produced[]` 解耦 10ms 轮询的 PUB/TX，避免阻塞解析  
+- `serial_produced[]` / `zmq_produced[]` 解耦 10ms 轮询的 PUB/TX，避免阻塞解析
 
 ### 为什么 ROS2 Radar 而不是 Unity
-- 定位与融合在 `alliance_radar_location_lidar`（camera + lidar + fusion + bridge）  
-- egui 只负责 launch 与订阅其 ZMQ 输出  
+- 定位与融合在 `alliance_radar_location_lidar`（camera + lidar + fusion + bridge）
+- egui 只负责 launch 与订阅其 ZMQ 输出
 
 ## 构建与运行
 
@@ -180,7 +180,7 @@ cargo clippy -- -D warnings
 
 ## 已知缺口（给 agent 的注意点）
 
-1. 串口未挂到 `RadarApp` 启动路径  
-2. ZMQ SUB 尚未完整写回 `SerialData` 做中继  
-3. ZMQ runtime `stop` 与线程循环未完全联动  
-4. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准  
+1. 串口未挂到 `RadarApp` 启动路径
+2. ZMQ SUB 尚未完整写回 `SerialData` 做中继
+3. ZMQ runtime `stop` 与线程循环未完全联动
+4. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准
