@@ -32,8 +32,7 @@ impl RadarApp {
                 ui.allocate_ui_at_rect(body, |ui| {
                     ui.set_min_size(body.size());
                     ui.set_max_size(body.size());
-                    let data = app.serial_reader.inner().lock().ok().map(|g| g.clone());
-                    if let Some(data) = data {
+                    if let Some(data) = app.serial_reader.snapshot() {
                         SerialPanel::new().show_monitor(
                             ui,
                             &data,
@@ -133,35 +132,24 @@ impl RadarApp {
                             ui.end_row();
                         });
                     ui.add_space(10.0);
-                    ui.columns(2, |cols| {
-                        if cols[0]
-                            .add_enabled(
-                                !self.serial_open,
-                                egui::Button::new("Open").fill(theme::BLUE),
-                            )
-                            .clicked()
-                        {
-                            self.open_serial();
-                            if self.serial_open {
-                                self.push_serial_log(
-                                    SerialLogKind::Ok,
-                                    format!("OPEN {}", self.serial_port_name),
-                                );
-                            } else if let Some(err) = &self.serial_error {
-                                self.push_serial_log(
-                                    SerialLogKind::Err,
-                                    format!("OPEN fail {err}"),
-                                );
-                            }
+                    if ui
+                        .add_enabled(
+                            !self.serial_open,
+                            egui::Button::new("Open serial (active until app exit)")
+                                .fill(theme::BLUE),
+                        )
+                        .clicked()
+                    {
+                        self.open_serial();
+                        if self.serial_open {
+                            self.push_serial_log(
+                                SerialLogKind::Ok,
+                                format!("OPEN {}", self.serial_port_name),
+                            );
+                        } else if let Some(err) = &self.serial_error {
+                            self.push_serial_log(SerialLogKind::Err, format!("OPEN fail {err}"));
                         }
-                        if cols[1]
-                            .add_enabled(self.serial_open, egui::Button::new("Close"))
-                            .clicked()
-                        {
-                            self.serial_open = false;
-                            self.push_serial_log(SerialLogKind::Err, "CLOSE".into());
-                        }
-                    });
+                    }
                     if let Some(err) = &self.serial_error {
                         ui.add_space(8.0);
                         ui.label(egui::RichText::new(err).color(theme::RED).size(12.0));
@@ -221,10 +209,10 @@ impl RadarApp {
                 });
 
                 ui.add_space(12.0);
-                if let Ok(guard) = self.serial_reader.inner().lock() {
-                    SerialPanel::new().show_minimap_sidebar(ui, &guard.minimap_receive_radar_data);
+                if let Some(snap) = self.serial_reader.snapshot() {
+                    SerialPanel::new().show_minimap_sidebar(ui, &snap.minimap_receive_radar_data);
                     ui.add_space(12.0);
-                    SerialPanel::new().show_dirty_flags(ui, &guard);
+                    SerialPanel::new().show_dirty_flags(ui, &snap);
                 }
             });
     }

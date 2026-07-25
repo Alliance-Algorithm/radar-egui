@@ -121,14 +121,14 @@ impl SerialPanel {
     fn show_hero_metrics(&self, ui: &mut Ui, serial_open: bool, port_label: &str, baud: u32) {
         ui.columns(4, |cols| {
             let link_sub = if serial_open {
-                format!("{port_label} @ {baud}")
+                format!("{port_label} @ {baud} — active until app exit")
             } else {
                 "未打开串口".into()
             };
             metric_card(
                 &mut cols[0],
                 "链路",
-                if serial_open { "Open" } else { "Closed" },
+                if serial_open { "Active" } else { "Idle" },
                 &link_sub,
                 if serial_open {
                     theme::GREEN
@@ -393,28 +393,28 @@ fn show_site_events(
 
 fn show_mark_grid(ui: &mut Ui, mark: &RadarMarkProcessData) {
     let red: [(&str, bool, bool); 6] = [
-        ("红1", mark.opponent_hero_vulnerable != 0, false),
-        ("红2", mark.opponent_engineer_vulnerable != 0, false),
-        ("红3", mark.opponent_infantry_3_vulnerable != 0, false),
-        ("红4", mark.opponent_infantry_4_vulnerable != 0, false),
+        ("敌 1", mark.opponent_hero_vulnerable != 0, false),
+        ("敌 2", mark.opponent_engineer_vulnerable != 0, false),
+        ("敌 3", mark.opponent_infantry_3_vulnerable != 0, false),
+        ("敌 4", mark.opponent_infantry_4_vulnerable != 0, false),
         (
-            "红5",
+            "敌 5",
             mark.opponent_aerial_marked != 0,
             mark.opponent_aerial_targeted != 0,
         ),
-        ("红6", mark.opponent_sentry_vulnerable != 0, false),
+        ("敌 6", mark.opponent_sentry_vulnerable != 0, false),
     ];
     let blue: [(&str, bool, bool); 6] = [
-        ("蓝1", false, mark.ally_hero_marked != 0),
-        ("蓝2", false, mark.ally_engineer_marked != 0),
-        ("蓝3", false, mark.ally_infantry_3_marked != 0),
-        ("蓝4", false, mark.ally_infantry_4_marked != 0),
+        ("我 1", false, mark.ally_hero_marked != 0),
+        ("我 2", false, mark.ally_engineer_marked != 0),
+        ("我 3", false, mark.ally_infantry_3_marked != 0),
+        ("我 4", false, mark.ally_infantry_4_marked != 0),
         (
-            "蓝5",
+            "我 5",
             mark.ally_aerial_targeted != 0,
             mark.ally_aerial_marked != 0,
         ),
-        ("蓝6", false, mark.ally_sentry_marked != 0),
+        ("我 6", false, mark.ally_sentry_marked != 0),
     ];
 
     let cell_w = ((ui.available_width() - 5.0 * 6.0) / 6.0).max(36.0);
