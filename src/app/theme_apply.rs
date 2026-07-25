@@ -2,7 +2,7 @@ use super::RadarApp;
 use crate::theme;
 
 impl RadarApp {
-    pub(super) fn show_theme_toggle(&mut self, ctx: &egui::Context) {
+    pub(super) fn show_theme_toggle(&mut self, ui: &mut egui::Ui) {
         let accent = if self.dark_mode {
             egui::Color32::from_rgb(0xc8, 0xd7, 0xff)
         } else {
@@ -21,7 +21,9 @@ impl RadarApp {
             egui::Color32::from_rgb(0xff, 0xef, 0xc2)
         };
         let knob_stroke = egui::Stroke::new(1.0, Self::alpha(accent, 92));
-        let animation = ctx.animate_bool(egui::Id::new("theme_toggle_knob"), self.dark_mode);
+        let animation = ui
+            .ctx()
+            .animate_bool(egui::Id::new("theme_toggle_knob"), self.dark_mode);
         let sun_color = if self.dark_mode {
             Self::alpha(theme::text_faint(), 170)
         } else {
@@ -33,61 +35,54 @@ impl RadarApp {
             egui::Color32::from_rgb(0x6f, 0x7f, 0x9e)
         };
 
-        egui::Area::new("global_theme_toggle".into())
-            .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(18.0, -18.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(54.0, 28.0), egui::Sense::click());
-                let response = response.on_hover_text(hover_text);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(54.0, 28.0), egui::Sense::click());
+        let response = response.on_hover_text(hover_text);
 
-                let painter = ui.painter();
-                painter.rect_filled(rect, egui::CornerRadius::same(14), track_fill);
-                painter.rect_stroke(
-                    rect,
-                    egui::CornerRadius::same(14),
-                    track_stroke,
-                    egui::StrokeKind::Middle,
-                );
+        let painter = ui.painter();
+        painter.rect_filled(rect, egui::CornerRadius::same(14), track_fill);
+        painter.rect_stroke(
+            rect,
+            egui::CornerRadius::same(14),
+            track_stroke,
+            egui::StrokeKind::Middle,
+        );
 
-                let knob_center_x =
-                    egui::lerp((rect.left() + 14.0)..=(rect.right() - 14.0), animation);
-                let knob_rect = egui::Rect::from_center_size(
-                    egui::pos2(knob_center_x, rect.center().y),
-                    egui::vec2(24.0, 24.0),
-                );
-                painter.rect_filled(knob_rect, egui::CornerRadius::same(12), knob_fill);
-                painter.rect_stroke(
-                    knob_rect,
-                    egui::CornerRadius::same(12),
-                    knob_stroke,
-                    egui::StrokeKind::Middle,
-                );
+        let knob_center_x = egui::lerp((rect.left() + 14.0)..=(rect.right() - 14.0), animation);
+        let knob_rect = egui::Rect::from_center_size(
+            egui::pos2(knob_center_x, rect.center().y),
+            egui::vec2(24.0, 24.0),
+        );
+        painter.rect_filled(knob_rect, egui::CornerRadius::same(12), knob_fill);
+        painter.rect_stroke(
+            knob_rect,
+            egui::CornerRadius::same(12),
+            knob_stroke,
+            egui::StrokeKind::Middle,
+        );
 
-                let sun_center = egui::pos2(rect.left() + 14.0, rect.center().y);
-                let moon_center = egui::pos2(rect.right() - 14.0, rect.center().y);
+        let sun_center = egui::pos2(rect.left() + 14.0, rect.center().y);
+        let moon_center = egui::pos2(rect.right() - 14.0, rect.center().y);
 
-                Self::draw_sun_icon(painter, sun_center, 4.0, sun_color);
-                Self::draw_moon_icon(
-                    painter,
-                    moon_center,
-                    5.0,
-                    moon_color,
-                    if self.dark_mode {
-                        knob_fill
-                    } else {
-                        track_fill
-                    },
-                );
+        Self::draw_sun_icon(painter, sun_center, 4.0, sun_color);
+        Self::draw_moon_icon(
+            painter,
+            moon_center,
+            5.0,
+            moon_color,
+            if self.dark_mode {
+                knob_fill
+            } else {
+                track_fill
+            },
+        );
 
-                if animation > 0.0 && animation < 1.0 {
-                    ctx.request_repaint();
-                }
+        if animation > 0.0 && animation < 1.0 {
+            ui.ctx().request_repaint();
+        }
 
-                if response.clicked() {
-                    self.dark_mode = !self.dark_mode;
-                }
-            });
+        if response.clicked() {
+            self.dark_mode = !self.dark_mode;
+        }
     }
 
     pub(super) fn apply_theme(&self, ctx: &egui::Context) {
