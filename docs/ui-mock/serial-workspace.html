@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radar HUD · Serial Workspace Mock</title>
+  <!--
+    Serial listen + operate panels.
+    Data model mirrors src/serial/data_format.rs (DJI referee UART).
+    Identity: theme.rs · Maple/WenKai · logo · creeper-qt MD3 motion.
+  -->
+  <style>
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Regular.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Medium.ttf") format("truetype");
+      font-weight: 500; font-display: swap;
+    }
+    @font-face {
+      font-family: "LXGW WenKai Mono";
+      src: url("file:///usr/share/fonts/TTF/LXGWWenKaiMonoGBScreen.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    :root, [data-theme="light"] {
+      --app-bg: #f5f7fb; --rail-bg: #f5f7fb; --panel-bg: #eef2f7;
+      --card-bg: #ffffff; --card-muted: #f8fafd; --border: #d7dfeb;
+      --border-strong: #b8c5d9; --text: #1f2937; --text-muted: #667083;
+      --text-faint: #94a3b8; --text-on-dark: #cdd6f4; --shadow: rgba(15,23,42,.09);
+      --blue: #2f6bff; --blue-soft: #dce7ff; --green: #22c55e; --red: #ef4444;
+      --yellow: #f59e0b; --success-bg: #e7f8ee; --error-bg: #feeeee;
+      --font: "JetBrains Maple Mono", "LXGW WenKai Mono", ui-monospace, monospace;
+      --md-ease: cubic-bezier(0.2, 0, 0, 1);
+      --md-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --ripple: color-mix(in srgb, var(--blue) 28%, transparent);
+      --elev-1: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.08);
+      --elev-2: 0 2px 6px rgba(15,23,42,.08), 0 6px 16px rgba(15,23,42,.08);
+      --elev-3: 0 4px 12px rgba(15,23,42,.10), 0 12px 28px rgba(15,23,42,.10);
+      --surface-tint: color-mix(in srgb, var(--blue) 6%, var(--card-bg));
+      --log-bg: #0f1218; --log-fg: #a6adc8;
+    }
+    [data-theme="dark"] {
+      --app-bg: #11111b; --rail-bg: #11111b; --panel-bg: #1e1e2e;
+      --card-bg: #313244; --card-muted: #45475a; --border: #45475a;
+      --border-strong: #585b70; --text: #cdd6f4; --text-muted: #a6adc8;
+      --text-faint: #6c7086; --shadow: rgba(0,0,0,.28);
+      --blue-soft: rgba(47,107,255,.22); --success-bg: #1e3a29; --error-bg: #3a1e1e;
+      --ripple: color-mix(in srgb, var(--blue) 40%, transparent);
+      --elev-1: 0 1px 2px rgba(0,0,0,.24); --elev-2: 0 2px 8px rgba(0,0,0,.28);
+      --elev-3: 0 6px 16px rgba(0,0,0,.32);
+      --surface-tint: color-mix(in srgb, var(--blue) 10%, var(--card-bg));
+      --log-bg: #0a0b10; --log-fg: #a6adc8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); background: var(--app-bg); color: var(--text);
+      font-size: 13px; overflow: hidden; -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font-family: inherit; color: inherit; }
+    button { cursor: pointer; border: none; background: none; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .app {
+      display: grid;
+      grid-template-columns: 58px 10px minmax(0, 1fr) 360px;
+      height: 100vh;
+    }
+
+    /* rail — 4 modes */
+    .rail {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 8px 0 12px; background: var(--rail-bg); border-right: 1px solid var(--border);
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+      margin-bottom: 8px; background: var(--blue-soft);
+    }
+    .mode { width: 100%; display: flex; justify-content: center; margin-bottom: 6px; }
+    .mode-btn {
+      min-width: 42px; padding: 8px 6px; border-radius: 14px;
+      border: 1px solid var(--border); background: var(--card-bg);
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+      position: relative; overflow: hidden;
+      transition: transform .22s var(--md-spring), background .22s, box-shadow .22s;
+    }
+    .mode-btn:hover { transform: translateY(-1px); box-shadow: var(--elev-1); }
+    .mode-btn:active { transform: scale(0.94); }
+    .mode-btn .icon { font-size: 16px; color: var(--text); line-height: 1; }
+    .mode-btn .sub { font-size: 8px; color: var(--text-faint); }
+    .mode-btn.active {
+      background: var(--blue); border-color: transparent;
+      box-shadow: 0 6px 16px rgba(47,107,255,.28);
+    }
+    .mode-btn.active .icon { color: var(--text-on-dark); }
+    .mode-btn.active .sub { color: var(--blue-soft); }
+    .rail-stats { margin-top: 4px; text-align: center; font-size: 11px; color: var(--text-muted); line-height: 1.3; }
+    .rail-stats .faint { color: var(--text-faint); }
+    .theme-toggle {
+      margin-top: auto; width: 54px; height: 28px; border-radius: 999px;
+      border: 1px solid color-mix(in srgb, #f4b942 35%, var(--border));
+      background: var(--card-bg); position: relative;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 7px;
+    }
+    .theme-toggle .knob {
+      position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+      background: #ffefc2; transition: transform .34s var(--md-spring);
+    }
+    [data-theme="dark"] .theme-toggle .knob { transform: translateX(26px); background: #3a4462; }
+    .theme-toggle .sun { font-size: 12px; color: #f2b721; }
+    .theme-toggle .moon { font-size: 12px; color: #6f7f9e; }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0; min-height: 0;
+      padding: 12px 10px 12px 0; gap: 10px;
+    }
+    .topbar { display: flex; align-items: center; gap: 12px; }
+    .topbar h1 { font-size: 21px; font-weight: 500; }
+    .topbar .sub { font-size: 13px; color: var(--text-muted); }
+    .topbar .spacer { flex: 1; }
+
+    /* center: monitor grid */
+    .stage {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 16px; padding: 12px 14px; box-shadow: var(--elev-2);
+      min-height: 0; overflow: auto;
+      transition: box-shadow .28s, background .25s, transform .22s var(--md-spring);
+    }
+    .card:hover { box-shadow: var(--elev-3); background: var(--surface-tint); }
+    .card h2 { text-align: center; font-size: 15px; font-weight: 500; margin-bottom: 8px; }
+    .card .subtitle { text-align: center; font-size: 11px; color: var(--text-muted); margin: -4px 0 10px; }
+
+    .hero-metrics {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      grid-column: 1 / -1;
+    }
+    .metric {
+      background: var(--card-bg); border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 14px; padding: 12px 14px; box-shadow: var(--elev-1);
+      transition: transform .22s var(--md-spring), box-shadow .22s;
+    }
+    .metric:hover { transform: translateY(-2px); box-shadow: var(--elev-2); }
+    .metric label { display: block; font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+    .metric .val { font-size: 22px; font-weight: 500; line-height: 1.15; }
+    .metric .val.sm { font-size: 14px; }
+    .metric .sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+    .progress-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .prog-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+    .prog-bar {
+      height: 10px; border-radius: 999px;
+      background: color-mix(in srgb, var(--blue) 10%, var(--card-muted));
+      overflow: hidden;
+    }
+    .prog-bar > i {
+      display: block; height: 100%; width: 0%; border-radius: inherit;
+      background: var(--blue);
+      transition: width .55s var(--md-spring);
+    }
+
+    /* game phase big */
+    .phase-block {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
+    }
+    .phase-ring {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: conic-gradient(var(--blue) calc(var(--pct) * 1%), color-mix(in srgb, var(--blue) 12%, var(--card-muted)) 0);
+      display: grid; place-items: center;
+      transition: background .4s var(--md-ease);
+    }
+    .phase-ring .inner {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: var(--card-bg);
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 600; color: var(--blue);
+    }
+    .phase-info strong { display: block; font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+    .phase-info span { font-size: 12px; color: var(--text-muted); }
+
+    /* event chips */
+    .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ev {
+      height: 28px; padding: 0 10px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--card-muted);
+      font-size: 11px; color: var(--text-faint);
+      display: inline-flex; align-items: center; gap: 5px;
+      transition: background .25s, color .25s, border-color .25s, transform .2s var(--md-spring);
+    }
+    .ev.on {
+      background: var(--success-bg); border-color: var(--green); color: var(--green);
+      transform: scale(1.03);
+    }
+    .ev .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* mark matrix 12 robots */
+    .mark-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+    .mark-cell {
+      aspect-ratio: 1;
+      border-radius: 10px;
+      background: var(--card-muted);
+      border: 1px solid transparent;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 10px; color: var(--text-faint);
+      transition: background .25s, border-color .25s, transform .2s var(--md-spring);
+    }
+    .mark-cell .id { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .mark-cell.marked {
+      background: color-mix(in srgb, var(--blue) 16%, var(--card-muted));
+      border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+      color: var(--blue);
+    }
+    .mark-cell.marked .id { color: var(--blue); }
+    .mark-cell.vuln {
+      background: color-mix(in srgb, var(--red) 14%, var(--card-muted));
+      border-color: color-mix(in srgb, var(--red) 40%, transparent);
+      color: var(--red);
+    }
+    .mark-cell.vuln .id { color: var(--red); }
+
+    /* frame log */
+    .log {
+      height: 100%;
+      min-height: 160px;
+      background: var(--log-bg);
+      border-radius: 12px;
+      padding: 10px 12px;
+      overflow: auto;
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--log-fg);
+    }
+    .log .line { white-space: nowrap; }
+    .log .ts { color: #6c7086; margin-right: 8px; }
+    .log .cmd { color: #89b4fa; }
+    .log .ok { color: #a6e3a1; }
+    .log .err { color: #f38ba8; }
+    .log .dir-rx { color: #94e2d5; }
+    .log .dir-tx { color: #f9e2af; }
+
+    /* bottom dock: TX queue */
+    .bottom {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 10px;
+      height: clamp(140px, 18vh, 180px);
+    }
+    .bottom .card { height: 100%; }
+
+    .tx-row {
+      display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px;
+    }
+    .field-block label {
+      display: block; font-size: 11px; color: var(--text-faint); margin-bottom: 4px;
+    }
+    .field-block select, .field-block input {
+      height: 36px; width: 100%; border-radius: 10px 10px 4px 4px;
+      border: none; border-bottom: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--blue) 6%, var(--card-muted));
+      padding: 0 10px; font-size: 12px;
+    }
+    .field-block select:focus, .field-block input:focus {
+      outline: none; border-bottom: 2px solid var(--blue);
+    }
+
+    .queue {
+      display: flex; flex-direction: column; gap: 4px; max-height: 90px; overflow: auto;
+    }
+    .q-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 10px; border-radius: 8px; background: var(--card-muted);
+      font-size: 11px;
+    }
+    .q-item .st { color: var(--text-faint); }
+    .q-item .st.pending { color: var(--yellow); }
+    .q-item .st.sent { color: var(--green); }
+
+    /* right side */
+    .side {
+      background: var(--panel-bg); padding: 12px; overflow: auto;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .side::-webkit-scrollbar { width: 6px; }
+    .side::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+    .status-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; margin: 0 6px 6px 0;
+    }
+    .status-chip.ok { background: var(--success-bg); color: var(--green); }
+    .status-chip.bad { background: var(--error-bg); color: var(--red); }
+    .status-chip.warn { background: color-mix(in srgb, var(--yellow) 18%, var(--card-muted)); color: var(--yellow); }
+
+    .field {
+      display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; margin: 8px 0;
+    }
+    .field label { font-size: 13px; color: var(--text-muted); }
+    .field input, .field select {
+      height: 40px; border-radius: 12px 12px 4px 4px; border: none;
+      border-bottom: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--blue) 6%, var(--card-muted));
+      padding: 0 12px; width: 100%; font-size: 12px;
+    }
+    .field input:focus, .field select:focus {
+      outline: none; border-bottom: 2px solid var(--blue);
+      background: color-mix(in srgb, var(--blue) 12%, var(--card-muted));
+    }
+
+    .btn, .mode-btn, .chip-btn, .mini-btn {
+      position: relative; overflow: hidden; -webkit-tap-highlight-color: transparent;
+    }
+    .btn {
+      width: 100%; height: 36px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--card-muted);
+      font-size: 12px; font-weight: 500; box-shadow: var(--elev-1);
+      transition: transform .2s var(--md-spring), background .2s, box-shadow .22s;
+    }
+    .btn:hover { background: color-mix(in srgb, var(--blue) 8%, var(--card-muted)); box-shadow: var(--elev-2); }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary {
+      background: var(--blue); border-color: transparent; color: #fff;
+      box-shadow: 0 2px 4px rgba(47,107,255,.25), 0 6px 16px rgba(47,107,255,.28);
+    }
+    .btn.danger {
+      background: color-mix(in srgb, var(--red) 12%, var(--card-muted));
+      border-color: color-mix(in srgb, var(--red) 30%, var(--border));
+      color: var(--red);
+    }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .mini-btn {
+      height: 30px; padding: 0 12px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--card-muted);
+      font-size: 11px; font-weight: 500;
+      transition: transform .18s var(--md-spring), background .2s;
+    }
+    .mini-btn:hover { background: color-mix(in srgb, var(--blue) 10%, var(--card-muted)); }
+    .mini-btn:active { transform: scale(0.96); }
+
+    .meta {
+      display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px;
+      margin-top: 8px; font-size: 12px;
+    }
+    .meta span { color: var(--text-faint); }
+    .meta strong { font-weight: 500; }
+
+    .switch-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 10px; font-size: 12px; color: var(--text-muted);
+    }
+    .switch {
+      width: 52px; height: 32px; border-radius: 999px;
+      border: 2px solid var(--border-strong); position: relative; flex-shrink: 0;
+      transition: background .32s var(--md-ease), border-color .32s;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 50%; left: 4px;
+      width: 16px; height: 16px; margin-top: -8px; border-radius: 50%;
+      background: var(--border-strong); box-shadow: var(--elev-1);
+      transition: left .38s var(--md-spring), width .28s var(--md-spring),
+        height .28s, margin .28s, background .28s;
+    }
+    .switch.on { background: var(--blue); border-color: var(--blue); }
+    .switch.on::after {
+      left: 28px; width: 24px; height: 24px; margin-top: -12px; background: #fff;
+    }
+
+    .table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .table th {
+      text-align: left; color: var(--text-faint); font-weight: 400;
+      padding: 4px 4px 8px; border-bottom: 1px solid var(--border);
+    }
+    .table td { padding: 6px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+    .table tr:hover td { background: color-mix(in srgb, var(--blue) 5%, transparent); }
+
+    .ripple {
+      position: absolute; border-radius: 50%; transform: scale(0);
+      background: var(--ripple); pointer-events: none;
+      animation: ripple-wave .55s var(--md-ease) forwards;
+    }
+    .btn.primary .ripple { background: rgba(255,255,255,.35); }
+    @keyframes ripple-wave { to { transform: scale(1); opacity: 0; } }
+
+    .banner {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      z-index: 40; max-width: min(920px, 94vw);
+      padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+      backdrop-filter: blur(12px); box-shadow: var(--elev-2);
+      font-size: 11px; color: var(--text-muted); text-align: center;
+    }
+    .banner b { color: var(--text); font-weight: 500; }
+    .banner a { color: var(--blue); text-decoration: none; margin: 0 4px; }
+
+    .callout {
+      margin-top: 8px; padding: 10px 12px; border-radius: 12px;
+      background: color-mix(in srgb, var(--blue) 8%, var(--card-muted));
+      font-size: 11px; color: var(--text-muted); line-height: 1.45;
+    }
+    .callout b { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <img class="logo" src="./logo.png" alt="logo" width="34" height="34"
+           onerror="this.outerHTML='<div class=logo style=display:grid;place-items:center;color:var(--blue);font-size:16px;font-weight:600>R</div>'" />
+      <div class="mode"><button class="mode-btn" type="button" data-go="laser"><span class="icon">◈</span><span class="sub">Laser</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="sdr"><span class="icon">◎</span><span class="sub">SDR</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="radar"><span class="icon">◉</span><span class="sub">Radar</span></button></div>
+      <div class="mode"><button class="mode-btn active" type="button" data-go="serial"><span class="icon">⇄</span><span class="sub">Serial</span></button></div>
+      <div class="rail-stats num"><div id="fpsLabel">0 fps</div><div class="faint" id="age">0s</div></div>
+      <button class="theme-toggle" type="button" id="themeBtn"><span class="sun">☀</span><span class="moon">☾</span><span class="knob"></span></button>
+    </aside>
+    <div></div>
+
+    <section class="main">
+      <header class="topbar">
+        <h1>Serial Workspace</h1>
+        <span class="sub">referee UART · listen / operate · DJI protocol</span>
+        <div class="spacer"></div>
+        <button class="mini-btn" type="button" id="demoBtn">Simulate RX</button>
+      </header>
+
+      <div class="stage">
+        <div class="hero-metrics">
+          <div class="metric">
+            <label>链路</label>
+            <div class="val sm" id="linkVal">Closed</div>
+            <div class="sub" id="linkSub">未打开串口</div>
+          </div>
+          <div class="metric">
+            <label>帧率</label>
+            <div class="val num" id="fpsVal">0</div>
+            <div class="sub">frames / s</div>
+          </div>
+          <div class="metric">
+            <label>CRC 错误</label>
+            <div class="val num" id="crcVal">0</div>
+            <div class="sub" id="crcSub">累计</div>
+          </div>
+          <div class="metric">
+            <label>吞吐</label>
+            <div class="val sm num" id="thruVal">0 B/s</div>
+            <div class="sub">RX · last 1s</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>比赛状态</h2>
+          <div class="subtitle">0x0001 GameState · 1 Hz</div>
+          <div class="phase-block">
+            <div class="phase-ring" id="phaseRing" style="--pct:0">
+              <div class="inner num" id="phasePct">0%</div>
+            </div>
+            <div class="phase-info">
+              <strong id="phaseName">未开始</strong>
+              <span>剩余 <b class="num" id="remainTime" style="color:var(--text)">07:00</b> · UNIX <span class="num" id="unixTs">—</span></span>
+            </div>
+          </div>
+          <div class="progress-wrap">
+            <div class="prog-row"><span>比赛进度</span><span class="num" id="progLabel">0 / 420 s</span></div>
+            <div class="prog-bar"><i id="progFill" style="width:0%"></i></div>
+          </div>
+          <div class="meta" style="margin-top:12px">
+            <span>game_type</span><strong class="num" id="gameType">0</strong>
+            <span>game_progress</span><strong class="num" id="gameProg">0</strong>
+            <span>winner</span><strong id="winner">—</strong>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>场地事件</h2>
+          <div class="subtitle">0x0101 SiteEvent · 1 Hz</div>
+          <div class="chip-grid" id="eventChips">
+            <span class="ev" data-k="supply"><span class="dot"></span>补给站</span>
+            <span class="ev" data-k="energy"><span class="dot"></span>能量机关</span>
+            <span class="ev" data-k="highland"><span class="dot"></span>高地</span>
+            <span class="ev" data-k="dart"><span class="dot"></span>飞镖击中</span>
+            <span class="ev" data-k="outpost"><span class="dot"></span>前哨站</span>
+            <span class="ev" data-k="base"><span class="dot"></span>基地护甲</span>
+            <span class="ev" data-k="buff"><span class="dot"></span>增益点</span>
+            <span class="ev" data-k="fort"><span class="dot"></span>堡垒</span>
+          </div>
+          <div class="meta" style="margin-top:12px">
+            <span>飞镖剩余</span><strong class="num" id="dartRemain">—</strong>
+            <span>击中目标</span><strong class="num" id="dartHit">—</strong>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>雷达标记</h2>
+          <div class="subtitle">0x020C MarkProcess · 12 机易伤 / 标记</div>
+          <div class="mark-grid" id="markGrid"></div>
+          <div class="meta" style="margin-top:10px">
+            <span>图例</span><strong style="font-size:11px;color:var(--text-muted)">蓝=已标记 · 红=易伤</strong>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex;flex-direction:column">
+          <h2>帧日志</h2>
+          <div class="subtitle">SOF 0xA5 · CRC8/16 · 最近帧</div>
+          <div class="log" id="frameLog"></div>
+        </div>
+      </div>
+
+      <div class="bottom">
+        <div class="card">
+          <h2>发送操作</h2>
+          <div class="subtitle">serial_package → TX 线程 · zmq_produced</div>
+          <div class="tx-row">
+            <div class="field-block">
+              <label>命令</label>
+              <select id="txCmd">
+                <option value="0x0121">0x0121 雷达自主决策</option>
+                <option value="0x0301">0x0301 机器人交互</option>
+                <option value="0x1001">→ ZMQ GameState (桥)</option>
+                <option value="0x1002">→ ZMQ RadarMark (桥)</option>
+              </select>
+            </div>
+            <button class="btn primary" type="button" id="txSend" style="width:auto;padding:0 20px;height:36px">发送</button>
+          </div>
+          <div class="field-block" style="margin-top:6px">
+            <label>参数 / payload（hex 或简写）</label>
+            <input class="num" id="txPayload" value="01 00 00 00 00 00 00 00" />
+          </div>
+        </div>
+        <div class="card">
+          <h2>发送队列</h2>
+          <div class="subtitle">待发送 / 已发送</div>
+          <div class="queue" id="txQueue">
+            <div class="q-item"><span class="num">队列空</span><span class="st">—</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h2>串口连接</h2>
+        <div>
+          <span class="status-chip bad" id="portChip">● Closed</span>
+          <span class="status-chip warn" id="parseChip">● Parser idle</span>
+        </div>
+        <div class="field">
+          <label>Port</label>
+          <select id="portSelect">
+            <option>/dev/ttyUSB0</option>
+            <option>/dev/ttyUSB1</option>
+            <option>/dev/ttyACM0</option>
+            <option>/dev/ttyCH341USB0</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Baud</label>
+          <select id="baudSelect">
+            <option selected>115200</option>
+            <option>921600</option>
+            <option>230400</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Timeout</label>
+          <input class="num" value="50" />
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" type="button" id="openBtn">Open</button>
+          <button class="btn danger" type="button" id="closeBtn">Close</button>
+        </div>
+        <div class="meta">
+          <span>SerialConfig</span><strong>8N1</strong>
+          <span>RX / TX</span><strong>try_clone</strong>
+        </div>
+        <div class="callout">
+          <b>接线状态</b><br/>
+          协议层已实现；app 尚未调用 <code>start_receiver</code> /
+          <code>start_transmitter</code>。本 mock 示意挂载后的监听与操作 UI。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>解析开关</h2>
+        <div class="switch-row"><span>0x0001 比赛状态</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>0x0101 场地事件</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>0x020C 雷达标记</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>0x0305 小地图雷达</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>0x0A0x SDR 透传</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>写回 ZMQ PUB</span><button class="switch on" type="button"></button></div>
+      </div>
+
+      <div class="card">
+        <h2>小地图雷达 0x0305</h2>
+        <div class="subtitle">12 × (x, y) u16</div>
+        <table class="table">
+          <thead><tr><th>机</th><th>X</th><th>Y</th></tr></thead>
+          <tbody id="miniTable">
+            <tr><td colspan="3" style="color:var(--text-faint)">无数据</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>脏标志</h2>
+        <div class="subtitle">serial_produced / zmq_produced</div>
+        <div class="meta">
+          <span>serial_produced</span><strong class="num" id="spBits">0000…</strong>
+          <span>zmq_produced</span><strong class="num" id="zpBits">0000…</strong>
+          <span>last cmd</span><strong class="num" id="lastCmd">—</strong>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="banner">
+    <b>Serial</b> · 监听 + 操作 · DJI 裁判串口
+    <a href="./laser-workspace.html">Laser</a>
+    <a href="./sdr-workspace.html">SDR</a>
+    <a href="./radar-workspace.html">Radar</a>
+    <a href="./index.html">总览</a>
+  </div>
+
+  <script>
+    const PHASES = ["未开始", "准备阶段", "十五秒倒计时", "比赛中", "结算中", "比赛结束"];
+    const ROBOT_LABELS = ["红1","红2","红3","红4","红5","红6","蓝1","蓝2","蓝3","蓝4","蓝5","蓝6"];
+
+    const root = document.documentElement;
+    function setTheme(m) {
+      root.setAttribute("data-theme", m);
+      localStorage.setItem("radar-ui-mock-theme", m);
+    }
+    setTheme(localStorage.getItem("radar-ui-mock-theme") || "light");
+    document.getElementById("themeBtn").onclick = () =>
+      setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+
+    document.addEventListener("pointerdown", (e) => {
+      const el = e.target.closest(".btn, .mode-btn, .mini-btn");
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 2.2;
+      const wave = document.createElement("span");
+      wave.className = "ripple";
+      wave.style.width = wave.style.height = size + "px";
+      wave.style.left = (e.clientX - rect.left - size / 2) + "px";
+      wave.style.top = (e.clientY - rect.top - size / 2) + "px";
+      el.appendChild(wave);
+      wave.addEventListener("animationend", () => wave.remove());
+    });
+
+    document.querySelectorAll(".switch").forEach(sw => {
+      sw.onclick = () => sw.classList.toggle("on");
+    });
+
+    document.querySelectorAll("[data-go]").forEach(btn => {
+      btn.onclick = () => {
+        const t = btn.dataset.go;
+        if (t === "laser") location.href = "./laser-workspace.html";
+        if (t === "sdr") location.href = "./sdr-workspace.html";
+        if (t === "radar") location.href = "./radar-workspace.html";
+      };
+    });
+
+    // mark grid
+    const markGrid = document.getElementById("markGrid");
+    ROBOT_LABELS.forEach((lab, i) => {
+      const cell = document.createElement("div");
+      cell.className = "mark-cell";
+      cell.dataset.i = i;
+      cell.innerHTML = `<span class="id">${lab}</span><span>idle</span>`;
+      markGrid.appendChild(cell);
+    });
+
+    let open = false, demo = false, demoTimer = null;
+    let fps = 0, crc = 0, bytes = 0, remain = 420;
+    const logEl = document.getElementById("frameLog");
+    const queue = [];
+
+    function logLine(html) {
+      const d = document.createElement("div");
+      d.className = "line";
+      const ts = new Date().toISOString().slice(11, 23);
+      d.innerHTML = `<span class="ts">${ts}</span>${html}`;
+      logEl.prepend(d);
+      while (logEl.children.length > 80) logEl.lastChild.remove();
+    }
+
+    function setOpen(v) {
+      open = v;
+      document.getElementById("portChip").className = "status-chip " + (v ? "ok" : "bad");
+      document.getElementById("portChip").textContent = v ? "● Open" : "● Closed";
+      document.getElementById("linkVal").textContent = v ? "Open" : "Closed";
+      document.getElementById("linkSub").textContent = v
+        ? document.getElementById("portSelect").value + " @ " + document.getElementById("baudSelect").value
+        : "未打开串口";
+      document.getElementById("parseChip").className = "status-chip " + (v ? "ok" : "warn");
+      document.getElementById("parseChip").textContent = v ? "● Parser running" : "● Parser idle";
+      if (v) logLine(`<span class="ok">OPEN</span> ${document.getElementById("portSelect").value}`);
+      else logLine(`<span class="err">CLOSE</span>`);
+    }
+
+    document.getElementById("openBtn").onclick = () => setOpen(true);
+    document.getElementById("closeBtn").onclick = () => {
+      setOpen(false);
+      if (demo) {
+        demo = false;
+        document.getElementById("demoBtn").textContent = "Simulate RX";
+        clearInterval(demoTimer);
+      }
+    };
+
+    function renderQueue() {
+      const el = document.getElementById("txQueue");
+      if (!queue.length) {
+        el.innerHTML = `<div class="q-item"><span class="num">队列空</span><span class="st">—</span></div>`;
+        return;
+      }
+      el.innerHTML = queue.slice().reverse().map(q =>
+        `<div class="q-item"><span class="num">${q.cmd} · ${q.payload.slice(0, 18)}${q.payload.length>18?"…":""}</span><span class="st ${q.st}">${q.st}</span></div>`
+      ).join("");
+    }
+
+    document.getElementById("txSend").onclick = () => {
+      if (!open) {
+        logLine(`<span class="err">TX blocked</span> port closed`);
+        return;
+      }
+      const cmd = document.getElementById("txCmd").value;
+      const payload = document.getElementById("txPayload").value.trim();
+      const item = { cmd, payload, st: "pending" };
+      queue.push(item);
+      renderQueue();
+      logLine(`<span class="dir-tx">TX</span> <span class="cmd">${cmd}</span> ${payload}`);
+      setTimeout(() => {
+        item.st = "sent";
+        renderQueue();
+        document.getElementById("zpBits").textContent = "…1…";
+      }, 320);
+    };
+
+    function tickDemo() {
+      if (!open) setOpen(true);
+      fps = 8 + Math.floor(Math.random() * 6);
+      bytes = 400 + Math.floor(Math.random() * 800);
+      remain = Math.max(0, remain - 1);
+      const total = 420;
+      const pct = Math.round(((total - remain) / total) * 100);
+      document.getElementById("fpsVal").textContent = String(fps);
+      document.getElementById("fpsLabel").textContent = fps + " fps";
+      document.getElementById("thruVal").textContent = bytes + " B/s";
+      document.getElementById("phaseRing").style.setProperty("--pct", pct);
+      document.getElementById("phasePct").textContent = pct + "%";
+      document.getElementById("phaseName").textContent = remain > 0 ? "比赛中" : "比赛结束";
+      const m = String(Math.floor(remain / 60)).padStart(2, "0");
+      const s = String(remain % 60).padStart(2, "0");
+      document.getElementById("remainTime").textContent = `${m}:${s}`;
+      document.getElementById("progLabel").textContent = `${total - remain} / ${total} s`;
+      document.getElementById("progFill").style.width = pct + "%";
+      document.getElementById("gameProg").textContent = "3";
+      document.getElementById("unixTs").textContent = String(Math.floor(Date.now() / 1000));
+
+      // random events
+      document.querySelectorAll("#eventChips .ev").forEach(ev => {
+        if (Math.random() > 0.92) ev.classList.toggle("on");
+      });
+
+      // mark matrix
+      document.querySelectorAll(".mark-cell").forEach(cell => {
+        cell.classList.remove("marked", "vuln");
+        const r = Math.random();
+        if (r > 0.82) {
+          cell.classList.add("marked");
+          cell.lastElementChild.textContent = "mark";
+        } else if (r > 0.7) {
+          cell.classList.add("vuln");
+          cell.lastElementChild.textContent = "vuln";
+        } else {
+          cell.lastElementChild.textContent = "idle";
+        }
+      });
+
+      // minimap table
+      const rows = [];
+      for (let i = 0; i < 6; i++) {
+        const x = Math.floor(Math.random() * 2800);
+        const y = Math.floor(Math.random() * 1500);
+        rows.push(`<tr><td>${ROBOT_LABELS[i]}</td><td class="num">${x}</td><td class="num">${y}</td></tr>`);
+      }
+      document.getElementById("miniTable").innerHTML = rows.join("");
+
+      document.getElementById("spBits").textContent = Array.from({length: 8}, () => Math.random() > 0.5 ? "1" : "0").join("") + "…";
+      document.getElementById("lastCmd").textContent = ["0x0001","0x0101","0x020C","0x0305"][Math.floor(Math.random()*4)];
+
+      if (Math.random() > 0.85) {
+        crc += 1;
+        document.getElementById("crcVal").textContent = String(crc);
+        logLine(`<span class="err">CRC fail</span> drop frame`);
+      } else {
+        const cmd = document.getElementById("lastCmd").textContent;
+        logLine(`<span class="dir-rx">RX</span> <span class="cmd">${cmd}</span> <span class="ok">ok</span> len=${12 + Math.floor(Math.random()*40)}`);
+      }
+    }
+
+    document.getElementById("demoBtn").onclick = function () {
+      demo = !demo;
+      this.textContent = demo ? "Stop RX sim" : "Simulate RX";
+      if (demo) {
+        setOpen(true);
+        demoTimer = setInterval(tickDemo, 250);
+        tickDemo();
+      } else {
+        clearInterval(demoTimer);
+        document.getElementById("fpsVal").textContent = "0";
+        document.getElementById("fpsLabel").textContent = "0 fps";
+      }
+    };
+
+    // init mark labels already done
+    logLine(`<span class="ok">READY</span> serial mock · start_receiver not wired in app`);
+
+    const t0 = Date.now();
+    setInterval(() => {
+      document.getElementById("age").textContent = Math.floor((Date.now() - t0) / 1000) + "s";
+    }, 1000);
+  </script>
+</body>
+</html>
