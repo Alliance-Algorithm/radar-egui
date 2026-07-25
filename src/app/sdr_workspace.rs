@@ -285,23 +285,27 @@ impl RadarApp {
                     });
                 });
                 ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new("血量")
-                        .color(theme::text_faint())
-                        .size(11.0),
-                );
-                ui.horizontal(|ui| {
+                if let Some(health) = selected.health {
                     ui.label(
-                        egui::RichText::new(format!("{} / {}", selected.hp, selected.hp_max))
-                            .color(theme::text())
-                            .size(18.0),
+                        egui::RichText::new("血量")
+                            .color(theme::text_faint())
+                            .size(11.0),
                     );
-                });
-                hp_bar(
-                    ui,
-                    selected.hp as f32 / selected.hp_max.max(1) as f32,
-                    selected.color,
-                );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{} / {}", health.hp, health.hp_max))
+                                .color(theme::text())
+                                .size(18.0),
+                        );
+                    });
+                    hp_bar(ui, health.hp as f32 / health.hp_max as f32, selected.color);
+                } else {
+                    ui.label(
+                        egui::RichText::new("血量 N/A")
+                            .color(theme::text_muted())
+                            .size(11.0),
+                    );
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(
@@ -360,27 +364,32 @@ impl RadarApp {
                                         .color(theme::text())
                                         .size(13.0),
                                 );
-                                let bar_w = ui.available_width() - 48.0;
-                                if bar_w > 20.0 {
-                                    let (bar_rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(bar_w.min(80.0), 6.0),
-                                        egui::Sense::hover(),
-                                    );
-                                    ui.painter().rect_filled(
-                                        bar_rect,
-                                        255.0,
-                                        theme::border().gamma_multiply(0.35),
-                                    );
-                                    let r = robot.hp as f32 / robot.hp_max.max(1) as f32;
-                                    if r > 0.0 {
-                                        ui.painter().rect_filled(
-                                            egui::Rect::from_min_size(
-                                                bar_rect.min,
-                                                egui::vec2(bar_rect.width() * r, bar_rect.height()),
-                                            ),
-                                            255.0,
-                                            robot.color,
+                                if let Some(health) = robot.health {
+                                    let bar_w = ui.available_width() - 48.0;
+                                    if bar_w > 20.0 {
+                                        let (bar_rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(bar_w.min(80.0), 6.0),
+                                            egui::Sense::hover(),
                                         );
+                                        ui.painter().rect_filled(
+                                            bar_rect,
+                                            255.0,
+                                            theme::border().gamma_multiply(0.35),
+                                        );
+                                        let r = health.hp as f32 / health.hp_max as f32;
+                                        if r > 0.0 {
+                                            ui.painter().rect_filled(
+                                                egui::Rect::from_min_size(
+                                                    bar_rect.min,
+                                                    egui::vec2(
+                                                        bar_rect.width() * r,
+                                                        bar_rect.height(),
+                                                    ),
+                                                ),
+                                                255.0,
+                                                robot.color,
+                                            );
+                                        }
                                     }
                                 }
                                 ui.with_layout(
