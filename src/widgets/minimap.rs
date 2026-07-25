@@ -56,7 +56,7 @@ impl MinimapWidget {
         let content = inset_rect(frame_rect, STAGE_PAD);
         let board_rect = letterbox_rect(content, MINIMAP_ASPECT);
 
-        if let Some(background) = background {
+        let world_rect = if let Some(background) = background {
             painter.rect_filled(board_rect, 10.0, Color32::from_rgb(0x2a, 0x2e, 0x36));
             if response.hovered() {
                 let scroll_delta = ui.ctx().input(|input| input.raw_scroll_delta.y);
@@ -89,6 +89,7 @@ impl MinimapWidget {
             if opts.show_grid {
                 self.draw_grid(&painter, image_rect.intersect(board_rect));
             }
+            image_rect
         } else {
             if response.dragged() {
                 *pan = Vec2::ZERO;
@@ -97,20 +98,11 @@ impl MinimapWidget {
             if opts.show_grid {
                 self.draw_grid(&painter, board_rect);
             }
-        }
+            board_rect
+        };
 
         let Some(info) = info else {
             return;
-        };
-
-        let world_rect = if let Some(background) = background {
-            let texture_size = background.size_vec2();
-            let fit_scale =
-                (board_rect.width() / texture_size.x).min(board_rect.height() / texture_size.y);
-            let image_size = texture_size * fit_scale * *zoom;
-            Rect::from_center_size(board_rect.center() + *pan, image_size)
-        } else {
-            board_rect
         };
         let center = world_rect.center();
         let scale = world_rect.width().min(world_rect.height()) * 0.43 / 3000.0;
@@ -123,9 +115,10 @@ impl MinimapWidget {
                 center.x + robot.pos[0] as f32 * scale,
                 center.y - robot.pos[1] as f32 * scale,
             );
-            let hp_ratio = robot.hp_max.max(1) as f32;
-            let hp = (robot.hp as f32 / hp_ratio).clamp(0.0, 1.0);
-            screen_pts.push((i, screen_pos, robot.color, hp));
+            let hp = robot
+                .health
+                .map(|h| (h.hp as f32 / h.hp_max as f32).clamp(0.0, 1.0));
+            screen_pts.push((i, screen_pos, robot.color, hp.map_or(0.0, |value| value)));
 
             let selected = opts.selected == i;
             let r_core = if selected { 8.0 } else { 6.5 };
@@ -134,13 +127,15 @@ impl MinimapWidget {
             painter.circle_filled(screen_pos, r_ring + 2.0, Color32::from_white_alpha(28));
 
             if opts.show_heat {
-                let heat = (1.0 - hp).clamp(0.0, 1.0);
-                if heat > 0.05 {
-                    painter.circle_stroke(
-                        screen_pos,
-                        r_ring + 3.0 + heat * 4.0,
-                        Stroke::new(2.0, theme::RED.gamma_multiply(0.35 + heat * 0.45)),
-                    );
+                if let Some(hp) = hp {
+                    let heat = (1.0 - hp).clamp(0.0, 1.0);
+                    if heat > 0.05 {
+                        painter.circle_stroke(
+                            screen_pos,
+                            r_ring + 3.0 + heat * 4.0,
+                            Stroke::new(2.0, theme::RED.gamma_multiply(0.35 + heat * 0.45)),
+                        );
+                    }
                 }
             }
 
@@ -226,12 +221,17 @@ impl MinimapWidget {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct RobotHealth {
+    pub hp: u16,
+    pub hp_max: u16,
+}
+
 pub struct RobotMarker {
     pub name: &'static str,
     pub pos: [i16; 2],
     pub color: Color32,
-    pub hp: u16,
-    pub hp_max: u16,
+    pub health: Option<RobotHealth>,
     pub ammo: u16,
 }
 
@@ -241,48 +241,57 @@ pub fn robot_markers(info: &ReceiveSdr) -> [RobotMarker; 6] {
             name: "英雄",
             pos: [info.position.hero_x, info.position.hero_y],
             color: theme::HERO_COLOR,
-            hp: info.blood.hero_blood,
-            hp_max: 200,
+            health: Some(RobotHealth {
+                hp: info.blood.hero_blood,
+                hp_max: 200,
+            }),
             ammo: info.ammo.hero_ammo,
         },
         RobotMarker {
             name: "工程",
             pos: [info.position.engineer_x, info.position.engineer_y],
             color: theme::ENGINEER_COLOR,
-            hp: info.blood.engineer_blood,
-            hp_max: 200,
+            health: Some(RobotHealth {
+                hp: info.blood.engineer_blood,
+                hp_max: 200,
+            }),
             ammo: 0,
         },
         RobotMarker {
             name: "步兵1",
             pos: [info.position.infantry_3_x, info.position.infantry_3_y],
             color: theme::INFANTRY1_COLOR,
-            hp: info.blood.infantry_3_blood,
-            hp_max: 200,
+            health: Some(RobotHealth {
+                hp: info.blood.infantry_3_blood,
+                hp_max: 200,
+            }),
             ammo: info.ammo.infantry_3_ammo,
         },
         RobotMarker {
             name: "步兵2",
             pos: [info.position.infantry_4_x, info.position.infantry_4_y],
             color: theme::INFANTRY2_COLOR,
-            hp: info.blood.infantry_4_blood,
-            hp_max: 200,
+            health: Some(RobotHealth {
+                hp: info.blood.infantry_4_blood,
+                hp_max: 200,
+            }),
             ammo: info.ammo.infantry_4_ammo,
         },
         RobotMarker {
             name: "无人机",
             pos: [info.position.aerial_x, info.position.aerial_y],
             color: theme::DRONE_COLOR,
-            hp: 0,
-            hp_max: 1,
+            health: None,
             ammo: info.ammo.aerial_ammo,
         },
         RobotMarker {
             name: "哨兵",
             pos: [info.position.sentry_x, info.position.sentry_y],
             color: theme::SENTINEL_COLOR,
-            hp: info.blood.sentry_blood,
-            hp_max: 400,
+            health: Some(RobotHealth {
+                hp: info.blood.sentry_blood,
+                hp_max: 400,
+            }),
             ammo: info.ammo.sentry_ammo,
         },
     ]
@@ -357,5 +366,32 @@ pub fn demo_receive_sdr() -> ReceiveSdr {
             ..Default::default()
         },
         key: ReceiveSdrKey::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::zmq::data_format::ReceiveSdr;
+
+    #[test]
+    fn aerial_robot_health_is_none_not_fabricated() {
+        let sdr = ReceiveSdr::default();
+        let markers = robot_markers(&sdr);
+        let aerial = &markers[4];
+        assert!(
+            aerial.health.is_none(),
+            "aerial health should be absent, not fabricated"
+        );
+        for i in 0..markers.len() {
+            if i == 4 {
+                continue;
+            }
+            assert!(
+                markers[i].health.is_some(),
+                "non-aerial robot {} should have health data",
+                i
+            );
+        }
     }
 }
