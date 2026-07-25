@@ -30,23 +30,33 @@ impl Serial {
             Ok(s)
         })?;
 
-        port.set_read_timeout(Duration::from_millis(config.timeout))?;
-
         Ok(Self { serial_port: port })
     }
 
     /// Read raw bytes from the serial port (max 1024 bytes per call).
     pub fn receive_data(&mut self) -> std::io::Result<Vec<u8>> {
-        let mut buf = vec![0u8; 1024];
-        let bytes_read = self.serial_port.read(&mut buf)?;
-        buf.truncate(bytes_read);
-        Ok(buf)
+        let mut buf = vec![0u8; 2048];
+        loop {
+            match self.serial_port.read(&mut buf) {
+                Ok(n) => {
+                    buf.truncate(n);
+                    return Ok(buf);
+                }
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::Interrupted =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
-    /// Write bytes to the serial port.
-    pub fn send_data(&self, data: &[u8]) -> std::io::Result<()> {
-        self.serial_port.write_all(data)?;
-        Ok(())
+    /// Write bytes to the serial port. Silently ignores errors.
+    pub fn send_data(&self, data: &[u8]) {
+        let _ = self.serial_port.write_all(data);
     }
     /// Clone the underlying serial port for concurrent read/write.
     pub fn clone_serial_port(&self) -> std::io::Result<Self> {
@@ -63,21 +73,15 @@ pub fn start_receiver(
     serial_data: Arc<Mutex<SerialData>>,
     zmq_data: Arc<Mutex<ZmqData>>,
 ) -> thread::JoinHandle<()> {
-    let mut serial_parser = SerialParser::new(serial_data);
+    let mut serial_parser = SerialParser::new(serial_data.clone());
     let mut data: Vec<u8> = Vec::new();
     thread::spawn(move || loop {
         match serial.receive_data() {
             Ok(add_data) => {
                 data.extend_from_slice(&add_data);
-                let (parsed, _remaining) = serial_parser.parser(&mut data);
-                if parsed {
-                    continue;
-                }
+                serial_parser.parser(&mut data);
             }
-            Err(e) => {
-                println!("Error receiving data: {}", e);
-                thread::sleep(Duration::from_millis(50));
-            }
+            Err(_) => continue,
         }
     })
 }
@@ -118,11 +122,8 @@ pub fn start_transmitter(
             if let Ok(data_bytes) = raw {
                 let frame = serial_package(cmd_id, data_bytes);
                 if let Ok(frame_bytes) = frame.to_bytes() {
-                    if let Err(e) = serial.send_data(&frame_bytes) {
-                        eprintln!("Transmitter send error: {}", e);
-                    } else {
-                        data.zmq_produced[idx] = 0;
-                    }
+                    serial.send_data(&frame_bytes);
+                    data.zmq_produced[idx] = 0;
                 }
             }
         }
