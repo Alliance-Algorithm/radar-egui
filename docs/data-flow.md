@@ -1,6 +1,6 @@
 # Radar 系统数据流文档
 
-综合 **radar-egui**、**alliance_radar_sdr**、**laser_guidance**（及 **RADAR_APP**、**alliance_radar_location_lidar**）描述 RoboMaster 2026 雷达系统完整数据流。
+综合 **radar-egui**、**alliance_radar_sdr**、**laser_guidance**、**alliance_radar_location_lidar** 描述 RoboMaster 2026 雷达系统完整数据流。
 
 ---
 
@@ -37,11 +37,13 @@
 └───────────────────┘ └──────────┘ └──────────────────┘ └──────────────────┘
           │                          │
           ▼                          ▼
-┌───────────────────┐     ┌───────────────────┐     ┌───────────────────────┐
-│ alliance_radar_   │     │ RADAR_APP (Unity) │     │ C++/Python consumers │
-│ location_lidar    │     │ ZMQ SUB :5557     │     │ ZMQ SUB :5557         │
-│ ZMQ PUB :5556     │     │ 3D 可视化         │     │ 外部数据消费          │
-└───────────────────┘     └───────────────────┘     └───────────────────────┘
+┌───────────────────┐     ┌───────────────────────┐
+│ alliance_radar_   │     │ C++/Python consumers  │
+│ location_lidar    │     │ ZMQ SUB :5557         │
+│ (ROS2 Radar)      │     │ 比赛状态/雷达标记等   │
+│ ZMQ PUB :5556     │     │                       │
+│ (LidarLocation)   │     │                       │
+└───────────────────┘     └───────────────────────┘
 ```
 
 ### 1.1 仓库职责
@@ -51,9 +53,8 @@
 | **radar-egui** | Rust | HUD + 进程编排 + 协议桥接 | ZMQ PUB tcp://*:5557, FIFO `/tmp/laser_cmd`, 串口 TX |
 | **alliance_radar_sdr** | Python | SDR 无线信号解析 | ZMQ PUB tcp://127.0.0.1:5555 |
 | **laser_guidance** | C++ | 激光目标检测 + 视频推流 | ZMQ PUB :5556 + SHM `/laser_frame` |
-| **alliance_radar_location_lidar** | C++ | 激光雷达定位 | ZMQ PUB tcp://127.0.0.1:5556 |
+| **alliance_radar_location_lidar** | C++/ROS2 | 激光雷达定位 + 相机/融合/桥接（进程控制启动目标） | ZMQ PUB tcp://127.0.0.1:5556（LidarLocation） |
 | **model_to_map** | C++ | 场地点云 | SHM `/pointcloud_frame` |
-| **RADAR_APP** | C# (Unity) | 3D 战场 | ZMQ SUB :5557 |
 
 ---
 
@@ -143,10 +144,21 @@ laser_guidance ──→ ZMQ PUB :5556 → radar-egui (ReceiveLaser JSON)
 
 **进程控制**：通过 `ScriptRunner` spawn `laser_guidance/.script/{competition|preview|stream|record}`，通过 FIFO 下发 enemy/stream/record 配置。
 
-### 2.4 激光雷达定位数据链路
+### 2.4 激光雷达定位数据链路（ROS2 Radar）
+
+**进程控制启动**（`ScriptRunner::start_radar`，仓库相对路径 `../alliance_radar_location_lidar`）：
 
 ```
-alliance_radar_location_lidar → ZMQ PUB :5556 → radar-egui ZMQ SUB
+source /opt/ros/jazzy/setup.zsh
+source ros_ws/install/setup.zsh
+ros2 launch radar_bringup competition.launch.py side:=<red|blue>
+```
+
+**数据链路**：
+
+```
+alliance_radar_location_lidar (ROS2: camera + lidar + fusion + bridge)
+    → ZMQ PUB :5556 → radar-egui ZMQ SUB → Arc<Mutex<ZmqData>>.lidar
 ```
 
 **`ReceiveLidarLocation`** (JSON, cmd_id=0x2001)：12 机器人 × (x: u16, y: u16) = 24 字段。
@@ -195,12 +207,15 @@ ZmqData:     0=SDR 1=LASER 2=LIDAR 3=GAME_STATE 4=RADAR_MARK
 
 ---
 
-## 4. "Start All" 流程
+## 4. 进程控制
 
-```
-UI Start All → start_sdr() → 延迟 1s → start Laser::Competition → FIFO 下发配置
-时间线: t=0s SDR → t=1s Laser + enemy/stream/record 配置
-```
+| UI 动作 | 代码 | 外部进程 |
+|---------|------|----------|
+| Start SDR | `start_sdr(enemy)` | `../alliance_radar_sdr` → `python3 thread_init.py --enemySide …` |
+| Start Radar | `start_radar(side)` | `../alliance_radar_location_lidar` → `ros2 launch radar_bringup competition.launch.py side:=…` |
+| Start Laser | `start(Competition|…)` | `laser_guidance/.script/…` + FIFO `/tmp/laser_cmd` |
+| Start All | `schedule_start_all` | t=0 SDR → t=1s Laser::Competition + FIFO 配置（**不含** Radar，Radar 需单独点启） |
+| Stop All | `stop_all` | 停 Radar + Laser + SDR |
 
 ---
 
@@ -228,7 +243,7 @@ UI Start All → start_sdr() → 延迟 1s → start Laser::Competition → FIFO
 | 滑动窗口解析器 | 无固定帧分隔符，匹配 DJI 协议，CRC 双重校验 |
 | 双标志数组 | serial_produced[15] / zmq_produced[6] 分离，避免串口↔ZMQ 阻塞 |
 | SHM 双缓冲 | atomic frame_seq + write_idx 无锁同步，零拷贝 |
-| ZMQ JSON | 自动重连 + 跨语言 (Rust/Python/C++/C#) |
+| ZMQ JSON | 自动重连 + 跨语言 (Rust/Python/C++) |
 
 ---
 
@@ -241,7 +256,7 @@ UI Start All → start_sdr() → 延迟 1s → start Laser::Competition → FIFO
 | 应用 | `src/app/mod.rs` | RadarApp, 三标签路由, 连接状态, Rerun |
 | 侧边栏 | `src/app/view.rs` | 模式栏, SDR/Laser 侧边栏 |
 | 运行时 | `src/runtime/mod.rs` | ZmqSub/PubRuntime, VideoRuntime, PointCloudRuntime |
-| 进程管理 | `src/services/` | script_runner(SDR/Laser/Unity 启停) + process_control(Start All 编排) |
+| 进程管理 | `src/services/` | script_runner(SDR/Laser/ROS2 Radar 启停) + process_control(Start All 编排) |
 | 串口 | `src/serial/` | data_format(15 deku 结构体), parser(滑动窗口), package(组帧), crc, serial(I/O 线程) |
 | ZMQ | `src/zmq/` | data_format(消息结构体), zmq(PUB/SUB 线程 + 桥接) |
 | 激光 | `src/laser/` | protocol(解析), video(SHM 读取) |
