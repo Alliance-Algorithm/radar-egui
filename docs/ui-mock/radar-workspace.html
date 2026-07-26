@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radar HUD · Radar Workspace Mock</title>
+  <style>
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Regular.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Medium.ttf") format("truetype");
+      font-weight: 500; font-display: swap;
+    }
+    @font-face {
+      font-family: "LXGW WenKai Mono";
+      src: url("file:///usr/share/fonts/TTF/LXGWWenKaiMonoGBScreen.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    :root, [data-theme="light"] {
+      --app-bg: #f5f7fb; --rail-bg: #f5f7fb; --panel-bg: #eef2f7;
+      --card-bg: #ffffff; --card-muted: #f8fafd; --border: #d7dfeb;
+      --border-strong: #b8c5d9; --text: #1f2937; --text-muted: #667083;
+      --text-faint: #94a3b8; --text-on-dark: #cdd6f4; --shadow: rgba(15,23,42,.09);
+      --blue: #2f6bff; --blue-soft: #dce7ff; --green: #22c55e; --red: #ef4444;
+      --yellow: #f59e0b; --success-bg: #e7f8ee; --error-bg: #feeeee;
+      --input-bg: #fff; --overlay: rgba(255,255,255,.92);
+      --font: "JetBrains Maple Mono", "LXGW WenKai Mono", ui-monospace, monospace;
+      --md-ease: cubic-bezier(0.2, 0, 0, 1);
+      --md-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --ripple: color-mix(in srgb, var(--blue) 28%, transparent);
+      --elev-1: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.08);
+      --elev-2: 0 2px 6px rgba(15,23,42,.08), 0 6px 16px rgba(15,23,42,.08);
+      --elev-3: 0 4px 12px rgba(15,23,42,.10), 0 12px 28px rgba(15,23,42,.10);
+      --surface-tint: color-mix(in srgb, var(--blue) 6%, var(--card-bg));
+      --stage-mat: #e4eaf3;
+      --viewer-bg: #0b0d14;
+    }
+    [data-theme="dark"] {
+      --app-bg: #11111b; --rail-bg: #11111b; --panel-bg: #1e1e2e;
+      --card-bg: #313244; --card-muted: #45475a; --border: #45475a;
+      --border-strong: #585b70; --text: #cdd6f4; --text-muted: #a6adc8;
+      --text-faint: #6c7086; --shadow: rgba(0,0,0,.28);
+      --blue-soft: rgba(47,107,255,.22); --success-bg: #1e3a29; --error-bg: #3a1e1e;
+      --input-bg: #1e1e2e; --overlay: rgba(49,50,68,.92);
+      --ripple: color-mix(in srgb, var(--blue) 40%, transparent);
+      --elev-1: 0 1px 2px rgba(0,0,0,.24); --elev-2: 0 2px 8px rgba(0,0,0,.28);
+      --elev-3: 0 6px 16px rgba(0,0,0,.32);
+      --surface-tint: color-mix(in srgb, var(--blue) 10%, var(--card-bg));
+      --stage-mat: #0f1118; --viewer-bg: #08090e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); background: var(--app-bg); color: var(--text);
+      font-size: 13px; overflow: hidden; -webkit-font-smoothing: antialiased;
+    }
+    button, input { font-family: inherit; color: inherit; }
+    button { cursor: pointer; border: none; background: none; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .app {
+      display: grid;
+      grid-template-columns: 58px 10px minmax(0, 1fr) 340px;
+      height: 100vh;
+    }
+    .rail {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 8px 0 12px; background: var(--rail-bg); border-right: 1px solid var(--border);
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+      margin-bottom: 8px; background: var(--blue-soft);
+    }
+    .mode { width: 100%; display: flex; justify-content: center; margin-bottom: 8px; }
+    .mode-btn {
+      min-width: 42px; padding: 10px 8px; border-radius: 16px;
+      border: 1px solid var(--border); background: var(--card-bg);
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      position: relative; overflow: hidden;
+      transition: transform .22s var(--md-spring), background .22s, box-shadow .22s;
+    }
+    .mode-btn:hover { transform: translateY(-1px); box-shadow: var(--elev-1); }
+    .mode-btn:active { transform: scale(0.94); }
+    .mode-btn .icon { font-size: 18px; color: var(--text); line-height: 1; }
+    .mode-btn .sub { font-size: 9px; color: var(--text-faint); }
+    .mode-btn.active {
+      background: var(--blue); border-color: transparent;
+      box-shadow: 0 6px 16px rgba(47,107,255,.28);
+    }
+    .mode-btn.active .icon { color: var(--text-on-dark); }
+    .mode-btn.active .sub { color: var(--blue-soft); }
+    .rail-stats { margin-top: 4px; text-align: center; font-size: 12px; color: var(--text-muted); line-height: 1.35; }
+    .rail-stats .faint { color: var(--text-faint); }
+    .theme-toggle {
+      margin-top: auto; width: 54px; height: 28px; border-radius: 999px;
+      border: 1px solid color-mix(in srgb, #f4b942 35%, var(--border));
+      background: var(--card-bg); position: relative;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 7px;
+    }
+    .theme-toggle .knob {
+      position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+      background: #ffefc2; transition: transform .34s var(--md-spring);
+    }
+    [data-theme="dark"] .theme-toggle .knob { transform: translateX(26px); background: #3a4462; }
+    .theme-toggle .sun { font-size: 12px; color: #f2b721; }
+    .theme-toggle .moon { font-size: 12px; color: #6f7f9e; }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0; min-height: 0;
+      padding: 12px 10px 12px 0; gap: 10px;
+    }
+    .topbar { display: flex; align-items: center; gap: 12px; }
+    .topbar h1 { font-size: 21px; font-weight: 500; }
+    .topbar .sub { font-size: 13px; color: var(--text-muted); }
+    .topbar .spacer { flex: 1; }
+
+    /* Rerun stage — external viewer shell (current architecture) */
+    .viewer-frame {
+      min-height: 0;
+      background: var(--stage-mat);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--elev-2);
+      padding: 8px;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .viewer-canvas {
+      width: 100%; height: 100%;
+      border-radius: 12px;
+      background:
+        radial-gradient(ellipse 50% 40% at 50% 40%, rgba(47,107,255,.12), transparent 65%),
+        var(--viewer-bg);
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+    /* faux 3D grid floor */
+    .viewer-canvas::before {
+      content: "";
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(120,140,180,.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(120,140,180,.08) 1px, transparent 1px);
+      background-size: 48px 48px;
+      transform: perspective(600px) rotateX(58deg) scale(1.6) translateY(18%);
+      transform-origin: center bottom;
+      opacity: .7;
+      pointer-events: none;
+    }
+    .viewer-canvas.live::after {
+      content: "";
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(circle at 42% 48%, rgba(100,200,255,.9) 0 1.5px, transparent 2.5px),
+        radial-gradient(circle at 55% 52%, rgba(100,200,255,.7) 0 1px, transparent 2px),
+        radial-gradient(circle at 48% 58%, rgba(180,220,255,.8) 0 1.2px, transparent 2.2px),
+        radial-gradient(circle at 60% 45%, rgba(100,200,255,.6) 0 1px, transparent 2px),
+        radial-gradient(circle at 38% 55%, rgba(150,210,255,.75) 0 1.3px, transparent 2.3px);
+      animation: cloud-drift 4s var(--md-ease) infinite alternate;
+      pointer-events: none;
+      opacity: .9;
+    }
+    @keyframes cloud-drift {
+      from { transform: translate(0, 0); }
+      to { transform: translate(6px, -4px); }
+    }
+    .viewer-center {
+      position: relative; z-index: 2; text-align: center;
+      max-width: 420px; padding: 24px;
+    }
+    .viewer-center .icon {
+      width: 56px; height: 56px; margin: 0 auto 14px;
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--blue) 18%, transparent);
+      border: 1px solid color-mix(in srgb, var(--blue) 35%, transparent);
+      display: grid; place-items: center;
+      font-size: 24px; color: var(--blue);
+      box-shadow: var(--elev-2);
+      transition: transform .3s var(--md-spring);
+    }
+    .viewer-frame:hover .viewer-center .icon { transform: scale(1.06) rotate(-3deg); }
+    .viewer-center h3 {
+      font-size: 18px; font-weight: 500; color: #cdd6f4; margin-bottom: 8px;
+    }
+    .viewer-center p {
+      font-size: 13px; color: #a6adc8; line-height: 1.5; margin-bottom: 16px;
+    }
+    .viewer-center .hint {
+      font-size: 11px; color: #6c7086; line-height: 1.45;
+    }
+
+    .viewer-tools {
+      position: absolute; top: 18px; left: 18px; z-index: 5;
+      display: flex; gap: 6px;
+    }
+    .viewer-badge {
+      position: absolute; top: 18px; right: 18px; z-index: 5;
+      height: 28px; padding: 0 10px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--overlay);
+      backdrop-filter: blur(12px); display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-muted); box-shadow: var(--elev-1);
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--red);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent);
+    }
+    .live-dot.ok {
+      background: var(--green);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+    }
+
+    /* bottom status strip */
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      height: clamp(88px, 12vh, 110px);
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 14px; padding: 12px 14px;
+      box-shadow: var(--elev-1);
+      display: flex; flex-direction: column; justify-content: center;
+      transition: transform .22s var(--md-spring), box-shadow .22s;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: var(--elev-2); }
+    .stat-card label { font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+    .stat-card .val { font-size: 20px; font-weight: 500; }
+
+    .side {
+      background: var(--panel-bg); padding: 12px; overflow: auto;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 16px; padding: 12px 14px; box-shadow: var(--elev-2);
+      transition: box-shadow .28s, background .25s;
+    }
+    .card:hover { box-shadow: var(--elev-3); background: var(--surface-tint); }
+    .card h2 { text-align: center; font-size: 15px; font-weight: 500; margin-bottom: 10px; }
+    .card .subtitle { text-align: center; font-size: 11px; color: var(--text-muted); margin: -6px 0 10px; }
+
+    .status-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; margin: 0 6px 6px 0;
+    }
+    .status-chip.ok { background: var(--success-bg); color: var(--green); }
+    .status-chip.bad { background: var(--error-bg); color: var(--red); }
+    .status-chip.warn { background: color-mix(in srgb, var(--yellow) 18%, var(--card-muted)); color: var(--yellow); }
+
+    .field {
+      display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; margin: 8px 0;
+    }
+    .field label { font-size: 13px; color: var(--text-muted); }
+    .field input {
+      height: 40px; border-radius: 12px 12px 4px 4px; border: none;
+      border-bottom: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--blue) 6%, var(--card-muted));
+      padding: 0 12px; width: 100%; font-size: 12px;
+    }
+    .field input:focus {
+      outline: none; border-bottom: 2px solid var(--blue);
+      background: color-mix(in srgb, var(--blue) 12%, var(--card-muted));
+    }
+
+    .btn, .chip, .mode-btn {
+      position: relative; overflow: hidden; -webkit-tap-highlight-color: transparent;
+    }
+    .btn {
+      width: 100%; height: 36px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--card-muted);
+      font-size: 12px; font-weight: 500; box-shadow: var(--elev-1);
+      transition: transform .2s var(--md-spring), background .2s, box-shadow .22s;
+    }
+    .btn:hover { background: color-mix(in srgb, var(--blue) 8%, var(--card-muted)); box-shadow: var(--elev-2); }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary {
+      background: var(--blue); border-color: transparent; color: #fff;
+      box-shadow: 0 2px 4px rgba(47,107,255,.25), 0 6px 16px rgba(47,107,255,.28);
+    }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .chip {
+      height: 30px; padding: 0 12px; border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+      background: var(--overlay); backdrop-filter: blur(12px);
+      color: var(--text-muted); font-size: 11px; font-weight: 500;
+      box-shadow: var(--elev-1);
+      transition: transform .2s var(--md-spring), background .2s, color .2s;
+    }
+    .chip:hover { color: var(--text); }
+    .chip:active { transform: scale(0.94); }
+    .chip.on { background: var(--blue); color: #fff; border-color: transparent; }
+
+    .meta {
+      display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px;
+      margin-top: 8px; font-size: 12px;
+    }
+    .meta span { color: var(--text-faint); }
+    .meta strong { font-weight: 500; }
+
+    .switch-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 10px; font-size: 12px; color: var(--text-muted);
+    }
+    .switch {
+      width: 52px; height: 32px; border-radius: 999px;
+      border: 2px solid var(--border-strong); position: relative; flex-shrink: 0;
+      transition: background .32s var(--md-ease), border-color .32s;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 50%; left: 4px;
+      width: 16px; height: 16px; margin-top: -8px; border-radius: 50%;
+      background: var(--border-strong); box-shadow: var(--elev-1);
+      transition: transform .38s var(--md-spring), width .28s var(--md-spring),
+        height .28s, margin .28s, background .28s, left .38s var(--md-spring);
+    }
+    .switch.on { background: var(--blue); border-color: var(--blue); }
+    .switch.on::after {
+      left: 28px; width: 24px; height: 24px; margin-top: -12px; background: #fff;
+    }
+
+    .step {
+      display: flex; gap: 10px; margin: 10px 0; align-items: flex-start;
+    }
+    .step .n {
+      width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+      background: color-mix(in srgb, var(--blue) 14%, var(--card-muted));
+      color: var(--blue); font-size: 11px; font-weight: 600;
+      display: grid; place-items: center;
+    }
+    .step .t { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+    .step .t b { color: var(--text); font-weight: 500; display: block; margin-bottom: 2px; }
+
+    .callout {
+      margin-top: 8px; padding: 10px 12px; border-radius: 12px;
+      background: color-mix(in srgb, var(--blue) 8%, var(--card-muted));
+      font-size: 11px; color: var(--text-muted); line-height: 1.45;
+    }
+    .callout b { color: var(--text); font-weight: 500; }
+
+    .ripple {
+      position: absolute; border-radius: 50%; transform: scale(0);
+      background: var(--ripple); pointer-events: none;
+      animation: ripple-wave .55s var(--md-ease) forwards;
+    }
+    .btn.primary .ripple { background: rgba(255,255,255,.35); }
+    @keyframes ripple-wave { to { transform: scale(1); opacity: 0; } }
+
+    .banner {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      z-index: 40; max-width: min(900px, 94vw);
+      padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+      backdrop-filter: blur(12px); box-shadow: var(--elev-2);
+      font-size: 11px; color: var(--text-muted); text-align: center;
+    }
+    .banner b { color: var(--text); font-weight: 500; }
+    .banner a { color: var(--blue); text-decoration: none; margin: 0 4px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <img class="logo" src="./logo.png" alt="logo" width="34" height="34"
+           onerror="this.outerHTML='<div class=logo style=display:grid;place-items:center;color:var(--blue);font-size:16px;font-weight:600>R</div>'" />
+      <div class="mode"><button class="mode-btn" type="button" data-go="laser"><span class="icon">◈</span><span class="sub">Laser</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="sdr"><span class="icon">◎</span><span class="sub">SDR</span></button></div>
+      <div class="mode"><button class="mode-btn active" type="button" data-go="radar"><span class="icon">◉</span><span class="sub">Radar</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="serial"><span class="icon">⇄</span><span class="sub">Serial</span></button></div>
+      <div class="rail-stats num"><div>0 pkt</div><div class="faint" id="age">0s</div></div>
+      <button class="theme-toggle" type="button" id="themeBtn"><span class="sun">☀</span><span class="moon">☾</span><span class="knob"></span></button>
+    </aside>
+    <div></div>
+
+    <section class="main">
+      <header class="topbar">
+        <h1>Radar Workspace</h1>
+        <span class="sub">point cloud / rerun 3D viewer</span>
+        <div class="spacer"></div>
+        <button class="chip" type="button" id="demoChip">Simulate SHM</button>
+      </header>
+
+      <div class="viewer-frame">
+        <div class="viewer-tools">
+          <button class="chip on" type="button">Axes</button>
+          <button class="chip on" type="button">Ground grid</button>
+        </div>
+        <div class="viewer-badge">
+          <span class="live-dot" id="liveDot"></span>
+          <span id="liveText">Waiting for SHM</span>
+        </div>
+        <div class="viewer-canvas" id="viewerCanvas">
+          <div class="viewer-center" id="viewerCenter">
+            <div class="icon">◉</div>
+            <h3>Point Cloud Radar</h3>
+            <p>Rerun Viewer 在<strong style="color:#cdd6f4">外部窗口</strong>中显示 3D 点云<br/>
+              本页为 egui 壳：状态 + 启动 + SHM 元数据</p>
+            <div class="btn-row" style="max-width:320px;margin:0 auto 12px">
+              <button class="btn primary" type="button" id="openRerun">打开 Rerun</button>
+              <button class="btn" type="button" id="reconnect">重连 gRPC</button>
+            </div>
+            <p class="hint">
+              路径 A：外挂 <code style="color:#a6adc8">rerun</code> + <code style="color:#a6adc8">connect_grpc()</code>（现状）<br/>
+              路径 B：嵌入 <code style="color:#a6adc8">re_viewer::App</code>（可后续排期）
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-strip">
+        <div class="stat-card">
+          <label>SHM</label>
+          <div class="val" style="font-size:14px" id="shmPath">/pointcloud_frame</div>
+        </div>
+        <div class="stat-card">
+          <label>Frame seq</label>
+          <div class="val num" id="frameSeq">—</div>
+        </div>
+        <div class="stat-card">
+          <label>Points</label>
+          <div class="val num" id="pointCount">0</div>
+        </div>
+        <div class="stat-card">
+          <label>gRPC</label>
+          <div class="val" style="font-size:14px" id="grpcStatus">disconnected</div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h2>点云源</h2>
+        <div>
+          <span class="status-chip bad" id="shmChip">● SHM idle</span>
+          <span class="status-chip warn" id="rerunChip">● Rerun external</span>
+        </div>
+        <div class="field"><label>SHM</label><input class="num" value="/pointcloud_frame" readonly /></div>
+        <div class="meta">
+          <span>Producer</span><strong>model_to_map</strong>
+          <span>Poll</span><strong class="num">2 ms</strong>
+          <span>Stale</span><strong class="num">800 ms</strong>
+        </div>
+        <div class="switch-row">
+          <span>进入标签时自动拉流</span>
+          <button class="switch on" type="button" id="autoSwitch"></button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Rerun 控制</h2>
+        <div class="subtitle">当前架构：外部进程</div>
+        <button class="btn primary" type="button" id="launchBtn">Launch Rerun viewer</button>
+        <div class="btn-row">
+          <button class="btn" type="button">Connect gRPC</button>
+          <button class="btn" type="button">Load map.rrd</button>
+        </div>
+        <div class="callout">
+          <b>嵌入说明</b><br/>
+          官方可用 <code>re_viewer::App</code> 嵌进同一 eframe 窗口（API 不稳定）。
+          比赛现场建议继续外挂，本壳只做状态与一键启动。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>启动检查</h2>
+        <div class="step">
+          <div class="n">1</div>
+          <div class="t"><b>安装 viewer</b>cargo install rerun-cli --locked</div>
+        </div>
+        <div class="step">
+          <div class="n">2</div>
+          <div class="t"><b>启动</b>rerun 或打开已有会话</div>
+        </div>
+        <div class="step">
+          <div class="n">3</div>
+          <div class="t"><b>本进程</b>feature rerun + connect_grpc 推流</div>
+        </div>
+        <div class="step">
+          <div class="n">4</div>
+          <div class="t"><b>SHM</b>确认 /pointcloud_frame 有生产者</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>图层</h2>
+        <div class="switch-row"><span>world/pointcloud</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>world/ground_grid</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>world/axes</span><button class="switch on" type="button"></button></div>
+        <div class="switch-row"><span>world/robots (SDR)</span><button class="switch" type="button"></button></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="banner">
+    <b>Radar</b> · 外挂 Rerun 壳 + SHM 元数据 · creeper 控件
+    <a href="./laser-workspace.html">Laser</a>
+    <a href="./sdr-workspace.html">SDR</a>
+    <a href="./serial-workspace.html">Serial</a>
+    <a href="./index.html">总览</a>
+  </div>
+
+  <script>
+    const root = document.documentElement;
+    function setTheme(m) {
+      root.setAttribute("data-theme", m);
+      localStorage.setItem("radar-ui-mock-theme", m);
+    }
+    setTheme(localStorage.getItem("radar-ui-mock-theme") || "light");
+    document.getElementById("themeBtn").onclick = () =>
+      setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+
+    document.addEventListener("pointerdown", (e) => {
+      const el = e.target.closest(".btn, .chip, .mode-btn");
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 2.2;
+      const wave = document.createElement("span");
+      wave.className = "ripple";
+      wave.style.width = wave.style.height = size + "px";
+      wave.style.left = (e.clientX - rect.left - size / 2) + "px";
+      wave.style.top = (e.clientY - rect.top - size / 2) + "px";
+      el.appendChild(wave);
+      wave.addEventListener("animationend", () => wave.remove());
+    });
+
+    document.querySelectorAll(".switch").forEach(sw => {
+      sw.onclick = () => sw.classList.toggle("on");
+    });
+
+    document.querySelectorAll("[data-go]").forEach(btn => {
+      btn.onclick = () => {
+        const t = btn.dataset.go;
+        if (t === "laser") location.href = "./laser-workspace.html";
+        if (t === "sdr") location.href = "./sdr-workspace.html";
+        if (t === "serial") location.href = "./serial-workspace.html";
+      };
+    });
+
+    let live = false, seq = 0, timer = null;
+    function setLive(on) {
+      live = on;
+      document.getElementById("liveDot").classList.toggle("ok", on);
+      document.getElementById("liveText").textContent = on ? "Receiving point cloud" : "Waiting for SHM";
+      document.getElementById("viewerCanvas").classList.toggle("live", on);
+      document.getElementById("shmChip").className = "status-chip " + (on ? "ok" : "bad");
+      document.getElementById("shmChip").textContent = on ? "● SHM receiving" : "● SHM idle";
+      document.getElementById("grpcStatus").textContent = on ? "connected" : "disconnected";
+      document.getElementById("grpcStatus").style.color = on ? "var(--green)" : "";
+      if (on) {
+        document.getElementById("viewerCenter").style.opacity = "0.35";
+        timer = setInterval(() => {
+          seq += 1;
+          document.getElementById("frameSeq").textContent = String(seq);
+          document.getElementById("pointCount").textContent = String(120000 + Math.floor(Math.random() * 8000));
+        }, 200);
+      } else {
+        clearInterval(timer);
+        document.getElementById("viewerCenter").style.opacity = "1";
+        document.getElementById("frameSeq").textContent = "—";
+        document.getElementById("pointCount").textContent = "0";
+      }
+    }
+
+    document.getElementById("demoChip").onclick = function () {
+      const on = !this.classList.contains("on");
+      this.classList.toggle("on", on);
+      setLive(on);
+    };
+    document.getElementById("openRerun").onclick =
+    document.getElementById("launchBtn").onclick = () => {
+      document.getElementById("rerunChip").className = "status-chip ok";
+      document.getElementById("rerunChip").textContent = "● Rerun launched (mock)";
+    };
+
+    const t0 = Date.now();
+    setInterval(() => {
+      document.getElementById("age").textContent = Math.floor((Date.now() - t0) / 1000) + "s";
+    }, 1000);
+  </script>
+</body>
+</html>

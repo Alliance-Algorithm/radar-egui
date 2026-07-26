@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radar HUD · SDR Mock (aspect-fit map)</title>
+  <!--
+    Identity: theme.rs + assets.rs fonts + logo.png
+    Layout: map letterbox-fills stage at 1659:916 (no max-width cap)
+            bottom dock compact; right 360
+    Motion: creeper-qt-like spring bars / switches / press scale
+  -->
+  <style>
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Regular.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-Medium.ttf") format("truetype");
+      font-weight: 500; font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Maple Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrains-Maple-Mono-NF-XX-XX/JetBrainsMapleMono-SemiBold.ttf") format("truetype");
+      font-weight: 600; font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Mono";
+      src: url("file:///usr/share/fonts/TTF/JetBrainsMono-Regular.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+    @font-face {
+      font-family: "LXGW WenKai Mono";
+      src: url("file:///usr/share/fonts/TTF/LXGWWenKaiMonoGBScreen.ttf") format("truetype");
+      font-weight: 400; font-display: swap;
+    }
+
+    :root, [data-theme="light"] {
+      --app-bg: #f5f7fb;
+      --rail-bg: #f5f7fb;
+      --panel-bg: #eef2f7;
+      --card-bg: #ffffff;
+      --card-muted: #f8fafd;
+      --border: #d7dfeb;
+      --border-strong: #b8c5d9;
+      --text: #1f2937;
+      --text-muted: #667083;
+      --text-faint: #94a3b8;
+      --text-on-dark: #cdd6f4;
+      --shadow: rgba(15, 23, 42, 0.09);
+      --blue: #2f6bff;
+      --blue-soft: #dce7ff;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --success-bg: #e7f8ee;
+      --error-bg: #feeeee;
+      --hero: #3b82f6;
+      --engineer: #14b8a6;
+      --inf1: #22c55e;
+      --inf2: #eab308;
+      --drone: #f97316;
+      --sentinel: #a855f7;
+      --teal: #14b8a6;
+      --map-mat: #e4eaf3;
+      --input-bg: #fff;
+      --overlay: rgba(255,255,255,0.92);
+      --font: "JetBrains Maple Mono", "LXGW WenKai Mono", "JetBrains Mono", ui-monospace, monospace;
+      --spring: cubic-bezier(0.22, 1.15, 0.36, 1);
+      --spring-soft: cubic-bezier(0.2, 0.85, 0.2, 1);
+      /* creeper-qt / MD3 motion */
+      --md-ease: cubic-bezier(0.2, 0, 0, 1);
+      --md-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --md-emphasized: cubic-bezier(0.2, 0, 0, 1);
+      --ripple: color-mix(in srgb, var(--blue) 28%, transparent);
+      --elev-1: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.08);
+      --elev-2: 0 2px 6px rgba(15,23,42,.08), 0 6px 16px rgba(15,23,42,.08);
+      --elev-3: 0 4px 12px rgba(15,23,42,.10), 0 12px 28px rgba(15,23,42,.10);
+      --surface-tint: color-mix(in srgb, var(--blue) 6%, var(--card-bg));
+    }
+    [data-theme="dark"] {
+      --app-bg: #11111b;
+      --rail-bg: #11111b;
+      --panel-bg: #1e1e2e;
+      --card-bg: #313244;
+      --card-muted: #45475a;
+      --border: #45475a;
+      --border-strong: #585b70;
+      --text: #cdd6f4;
+      --text-muted: #a6adc8;
+      --text-faint: #6c7086;
+      --shadow: rgba(0,0,0,0.28);
+      --blue-soft: rgba(47,107,255,0.22);
+      --success-bg: #1e3a29;
+      --error-bg: #3a1e1e;
+      --map-mat: #0f1118;
+      --input-bg: #1e1e2e;
+      --overlay: rgba(49,50,68,0.92);
+      --ripple: color-mix(in srgb, var(--blue) 40%, transparent);
+      --elev-1: 0 1px 2px rgba(0,0,0,.24), 0 1px 3px rgba(0,0,0,.2);
+      --elev-2: 0 2px 8px rgba(0,0,0,.28), 0 8px 20px rgba(0,0,0,.22);
+      --elev-3: 0 6px 16px rgba(0,0,0,.32), 0 16px 36px rgba(0,0,0,.28);
+      --surface-tint: color-mix(in srgb, var(--blue) 10%, var(--card-bg));
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--app-bg);
+      color: var(--text);
+      font-size: 13px;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font-family: inherit; color: inherit; }
+    button { cursor: pointer; border: none; background: none; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    /* shell: rail 58 | gap 10 | main | side 360 */
+    .app {
+      display: grid;
+      grid-template-columns: 58px 10px minmax(0, 1fr) 360px;
+      height: 100vh;
+      background: var(--app-bg);
+    }
+
+    /* ── rail ── */
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 0 12px;
+      background: var(--rail-bg);
+      border-right: 1px solid var(--border);
+    }
+    .logo {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 8px;
+      background: var(--blue-soft);
+      box-shadow: 0 1px 3px var(--shadow);
+    }
+    .mode { width: 100%; display: flex; justify-content: center; margin-bottom: 8px; }
+    .mode-btn {
+      min-width: 42px;
+      padding: 10px 8px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      position: relative;
+      overflow: hidden;
+      transition:
+        transform .22s var(--md-spring),
+        background .22s var(--md-ease),
+        box-shadow .22s var(--md-ease),
+        border-color .22s;
+    }
+    .mode-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--elev-1);
+      background: color-mix(in srgb, var(--blue) 8%, var(--card-bg));
+    }
+    .mode-btn:active { transform: scale(0.94); }
+    .mode-btn .icon { font-size: 18px; color: var(--text); line-height: 1; }
+    .mode-btn .sub { font-size: 9px; color: var(--text-faint); }
+    .mode-btn.active {
+      background: var(--blue);
+      border-color: transparent;
+      box-shadow: 0 6px 16px rgba(47,107,255,.28);
+    }
+    .mode-btn.active .icon { color: var(--text-on-dark); }
+    .mode-btn.active .sub { color: var(--blue-soft); }
+    .rail-stats {
+      margin-top: 4px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+    .rail-stats .faint { color: var(--text-faint); }
+    .theme-toggle {
+      margin-top: auto;
+      width: 54px; height: 28px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, #f4b942 35%, var(--border));
+      background: var(--card-bg);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 7px;
+    }
+    [data-theme="dark"] .theme-toggle {
+      border-color: color-mix(in srgb, #c8d7ff 35%, var(--border));
+    }
+    .theme-toggle .knob {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: #ffefc2;
+      border: 1px solid color-mix(in srgb, #f4b942 55%, transparent);
+      transition: transform .34s var(--spring);
+      box-shadow: 0 1px 3px var(--shadow);
+    }
+    [data-theme="dark"] .theme-toggle .knob {
+      transform: translateX(26px);
+      background: #3a4462;
+      border-color: color-mix(in srgb, #c8d7ff 55%, transparent);
+    }
+    .theme-toggle .sun { font-size: 12px; color: #f2b721; }
+    .theme-toggle .moon { font-size: 12px; color: #6f7f9e; }
+    [data-theme="dark"] .theme-toggle .moon { color: #d9e7ff; }
+
+    /* ── main: topbar + map stage (flex grow) + compact bottom dock ── */
+    .main {
+      display: grid;
+      /* map gets the majority; bottom dock ~ fixed visual weight */
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0;
+      min-height: 0;
+      padding: 12px 10px 12px 0;
+      gap: 10px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 28px;
+    }
+    .topbar h1 { font-size: 21px; font-weight: 500; }
+    .topbar .sub { font-size: 13px; color: var(--text-muted); }
+    .topbar .spacer { flex: 1; }
+    /* OutlinedButton */
+    .btn-ghost {
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      transition:
+        transform .2s var(--md-spring),
+        border-color .2s var(--md-ease),
+        color .2s var(--md-ease),
+        background .2s var(--md-ease),
+        box-shadow .2s var(--md-ease);
+    }
+    .btn-ghost:hover {
+      color: var(--blue);
+      border-color: var(--blue);
+      background: color-mix(in srgb, var(--blue) 8%, transparent);
+    }
+    .btn-ghost:active { transform: scale(0.96); }
+
+    /*
+      MAP stage letterbox — asset ratio 1659:916 ≈ 1.811
+      Frame fills the grid cell; canvas is the largest rect that fits
+      both width and height of the frame content box (container queries).
+    */
+    .map-frame {
+      min-height: 0;
+      min-width: 0;
+      container-type: size;
+      background: var(--map-mat);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 6px 20px var(--shadow);
+      position: relative;
+      overflow: hidden;
+      padding: 8px;
+      display: grid;
+      place-items: center;
+    }
+    .map-canvas {
+      /* largest box with fixed aspect that fits the frame */
+      --ar: 1.811135; /* 1659 / 916 */
+      width: min(100cqw, calc(100cqh * var(--ar)));
+      height: min(100cqh, calc(100cqw / var(--ar)));
+      aspect-ratio: 1659 / 916;
+      position: relative;
+      background: #2a2e36 center / cover no-repeat;
+      background-image: url("./minimap_bg.png");
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.14);
+      transition: transform 0.28s var(--spring-soft);
+    }
+    .map-canvas.show-grid::after {
+      content: "";
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(228,234,243,.35) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(228,234,243,.35) 1px, transparent 1px);
+      background-size: 10% 10%;
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+    }
+    .map-tools {
+      position: absolute; top: 10px; left: 10px;
+      display: flex; gap: 6px; z-index: 5;
+    }
+    .map-tools .chip {
+      height: 30px; padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+      background: var(--overlay);
+      backdrop-filter: blur(12px);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      box-shadow: var(--elev-1);
+      transition:
+        transform .2s var(--md-spring),
+        background .2s var(--md-ease),
+        color .2s var(--md-ease),
+        box-shadow .2s var(--md-ease);
+    }
+    .map-tools .chip:hover {
+      color: var(--text);
+      box-shadow: var(--elev-2);
+    }
+    .map-tools .chip:active { transform: scale(0.94); }
+    .map-tools .chip.on {
+      background: var(--blue);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 2px 8px rgba(47,107,255,.3);
+    }
+    .map-live {
+      position: absolute; top: 10px; right: 10px; z-index: 5;
+      height: 28px; padding: 0 10px; border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--overlay);
+      backdrop-filter: blur(10px);
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-muted);
+      box-shadow: 0 2px 8px var(--shadow);
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent);
+      transition: background .25s, box-shadow .25s;
+    }
+    .live-dot.ok {
+      background: var(--green);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+    }
+
+    /* battlescope marker */
+    .marker {
+      position: absolute;
+      width: 26px; height: 26px;
+      margin: -13px 0 0 -13px;
+      border-radius: 50%;
+      cursor: pointer;
+      z-index: 3;
+      transition: transform .22s var(--spring);
+    }
+    .marker:hover, .marker.selected { transform: scale(1.2); z-index: 4; }
+    .marker .ring {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from -90deg, var(--m) calc(var(--heat) * 1%), transparent 0);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      opacity: .85;
+    }
+    .marker .core {
+      position: absolute; inset: 4px; border-radius: 50%;
+      background: conic-gradient(from -90deg, var(--m) calc(var(--hp) * 1%), color-mix(in srgb, var(--m) 18%, #111) 0);
+      box-shadow: 0 0 0 1.5px rgba(255,255,255,.85), 0 2px 6px rgba(0,0,0,.35);
+      transition: box-shadow .2s;
+    }
+    .marker.selected .core {
+      box-shadow: 0 0 0 2px var(--blue), 0 0 0 5px color-mix(in srgb, var(--blue) 28%, transparent);
+    }
+    .marker .tag {
+      position: absolute; left: calc(100% + 5px); top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px; color: #e8eef8;
+      text-shadow: 0 1px 3px rgba(0,0,0,.75);
+      white-space: nowrap; pointer-events: none;
+    }
+    .map-canvas.hide-labels .tag { opacity: 0; }
+
+    /* ── BOTTOM DOCK (compact height, fills width) ── */
+    .bottom {
+      flex-shrink: 0;
+      height: clamp(156px, 20vh, 200px);
+      display: grid;
+      grid-template-columns: 1.05fr 1fr 0.95fr;
+      gap: 10px;
+      min-height: 0;
+    }
+    .bottom .card {
+      height: 100%;
+      overflow: auto;
+    }
+    /* ElevatedCard (creeper-qt CardLevel::HIGH) */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: var(--elev-2);
+      min-height: 0;
+      overflow: auto;
+      transition:
+        transform .28s var(--md-spring),
+        box-shadow .28s var(--md-ease),
+        background .25s var(--md-ease);
+    }
+    .card:hover {
+      box-shadow: var(--elev-3);
+      background: var(--surface-tint);
+    }
+    .card h2 {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    .card .subtitle {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    /* selected robot hero strip inside bottom-left */
+    .sel-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sel-swatch {
+      width: 36px; height: 36px;
+      border-radius: 12px;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px var(--border), 0 4px 12px var(--shadow);
+      transition: transform .25s var(--spring);
+    }
+    .sel-head:hover .sel-swatch { transform: scale(1.06) rotate(-3deg); }
+    .sel-head strong { display: block; font-size: 16px; font-weight: 500; }
+    .sel-head span { font-size: 12px; color: var(--text-muted); }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+    }
+    .metric label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-faint);
+      margin-bottom: 4px;
+    }
+    .metric .val { font-size: 18px; font-weight: 500; }
+
+    /* creeper-like HP track (taller, spring fill, glow on change) */
+    .hp-track {
+      height: 12px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--blue) 10%, var(--card-muted));
+      overflow: hidden;
+      position: relative;
+    }
+    .hp-track > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      transition:
+        width .6s var(--md-spring),
+        background-color .35s var(--md-ease);
+      position: relative;
+    }
+    .hp-track > i::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+      transform: translateX(-100%);
+      animation: sheen 1.6s var(--spring-soft) infinite;
+      opacity: 0;
+    }
+    .hp-track.pulse > i::after { opacity: 1; }
+    @keyframes sheen {
+      to { transform: translateX(100%); }
+    }
+
+    /* interactive slider (creeper MD3 vibe) */
+    .slider-row {
+      display: grid;
+      grid-template-columns: 56px 1fr 40px;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+    }
+    .slider-row label { font-size: 12px; color: var(--text-muted); }
+    .slider-row .out { font-size: 12px; color: var(--text); text-align: right; }
+    /* Slider — MD3 active track + spring thumb (creeper Measurements::M) */
+    .slider-wrap {
+      position: relative;
+      height: 32px;
+      display: flex;
+      align-items: center;
+    }
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        var(--blue) 0%,
+        var(--blue) var(--pct, 50%),
+        color-mix(in srgb, var(--blue) 18%, var(--card-muted)) var(--pct, 50%),
+        color-mix(in srgb, var(--blue) 18%, var(--card-muted)) 100%
+      );
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--blue);
+      border: 0;
+      box-shadow:
+        0 0 0 0 color-mix(in srgb, var(--blue) 25%, transparent),
+        0 1px 3px rgba(0,0,0,.18);
+      transition:
+        transform .22s var(--md-spring),
+        box-shadow .22s var(--md-ease);
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.12);
+      box-shadow:
+        0 0 0 10px color-mix(in srgb, var(--blue) 14%, transparent),
+        0 2px 6px rgba(0,0,0,.2);
+    }
+    input[type="range"]::-webkit-slider-thumb:active {
+      transform: scale(1.28);
+      box-shadow:
+        0 0 0 14px color-mix(in srgb, var(--blue) 16%, transparent),
+        0 2px 8px rgba(0,0,0,.22);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--blue);
+      border: 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,.18);
+    }
+
+    /* bottom mid: robot list compact */
+    .robot-list { display: flex; flex-direction: column; gap: 6px; }
+    .robot-row {
+      display: grid;
+      grid-template-columns: 16px 1fr 64px 48px;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 10px;
+      border-radius: 14px;
+      background: var(--card-muted);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition:
+        transform .22s var(--md-spring),
+        border-color .2s var(--md-ease),
+        background .2s var(--md-ease),
+        box-shadow .22s var(--md-ease);
+    }
+    .robot-row:hover {
+      transform: translateX(2px);
+      background: color-mix(in srgb, var(--blue) 8%, var(--card-muted));
+      box-shadow: var(--elev-1);
+    }
+    .robot-row:active { transform: scale(0.985); }
+    .robot-row.selected {
+      border-color: transparent;
+      background: color-mix(in srgb, var(--blue) 16%, var(--card-muted));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 35%, transparent);
+    }
+    .robot-row .sw {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+    }
+    .robot-row .name { font-size: 13px; font-weight: 500; }
+    .robot-row .mini-bar {
+      height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--card-bg) 60%, var(--border));
+      overflow: hidden;
+    }
+    .robot-row .mini-bar > i {
+      display: block; height: 100%; width: 0%;
+      border-radius: inherit;
+      transition: width .5s var(--spring);
+    }
+    .robot-row .ammo { font-size: 12px; color: var(--text-faint); text-align: right; }
+
+    /* bottom right: economy + occupation */
+    .econ {
+      display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;
+    }
+    .econ .big { font-size: 28px; font-weight: 500; }
+    .econ .small { font-size: 16px; color: var(--text-muted); }
+    .occ { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .occ span {
+      min-width: 36px; height: 32px; padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card-muted);
+      color: var(--text-faint);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      transition: transform .2s var(--spring), background .25s, border-color .25s, color .25s;
+    }
+    .occ span.on {
+      background: var(--success-bg);
+      border-color: var(--green);
+      color: var(--green);
+      transform: scale(1.04);
+    }
+
+    /* ── RIGHT SIDE (large) ── */
+    .side {
+      background: var(--panel-bg);
+      padding: 12px 12px 14px;
+      overflow: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .side::-webkit-scrollbar { width: 6px; }
+    .side::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+    .side .card { margin: 0; flex-shrink: 0; }
+    .side .card h2 { font-size: 16px; margin-bottom: 10px; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 26px; padding: 0 10px; border-radius: 999px;
+      font-size: 12px; margin-bottom: 8px;
+    }
+    .chip.ok { background: var(--success-bg); color: var(--green); }
+    .chip.bad { background: var(--error-bg); color: var(--red); }
+
+    .field {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin: 8px 0;
+    }
+    .field label { font-size: 13px; color: var(--text-muted); }
+    /* FilledTextField vibe */
+    .field input {
+      height: 40px;
+      border-radius: 12px 12px 4px 4px;
+      border: none;
+      border-bottom: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--blue) 6%, var(--card-muted));
+      padding: 0 12px;
+      width: 100%;
+      font-size: 12px;
+      transition:
+        background .2s var(--md-ease),
+        border-color .2s var(--md-ease),
+        box-shadow .2s var(--md-ease);
+    }
+    .field input:hover {
+      background: color-mix(in srgb, var(--blue) 10%, var(--card-muted));
+    }
+    .field input:focus {
+      outline: none;
+      border-bottom: 2px solid var(--blue);
+      background: color-mix(in srgb, var(--blue) 12%, var(--card-muted));
+      box-shadow: none;
+    }
+    /* Filled / Outlined buttons + water ripple (creeper WaterColor) */
+    .btn, .btn-ghost, .chip, .mode-btn, .robot-row {
+      position: relative;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn {
+      width: 100%; height: 36px; border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card-muted);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      box-shadow: var(--elev-1);
+      transition:
+        transform .2s var(--md-spring),
+        border-color .2s var(--md-ease),
+        background .2s var(--md-ease),
+        box-shadow .22s var(--md-ease);
+    }
+    .btn:hover {
+      border-color: color-mix(in srgb, var(--blue) 35%, var(--border));
+      background: color-mix(in srgb, var(--blue) 8%, var(--card-muted));
+      box-shadow: var(--elev-2);
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary {
+      background: var(--blue);
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 2px 4px rgba(47,107,255,.25), 0 6px 16px rgba(47,107,255,.28);
+    }
+    .btn.primary:hover {
+      filter: brightness(1.06);
+      box-shadow: 0 4px 8px rgba(47,107,255,.3), 0 10px 22px rgba(47,107,255,.28);
+    }
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      transform: scale(0);
+      background: var(--ripple);
+      pointer-events: none;
+      animation: ripple-wave .55s var(--md-ease) forwards;
+    }
+    .btn.primary .ripple { background: rgba(255,255,255,.35); }
+    @keyframes ripple-wave {
+      to { transform: scale(1); opacity: 0; }
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 6px 10px;
+      margin-top: 8px;
+      font-size: 12px;
+    }
+    .meta span { color: var(--text-faint); }
+    .meta strong { font-weight: 500; }
+
+    /* blood rows in side — larger bars */
+    .blood-row { margin-bottom: 12px; }
+    .blood-row .row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px;
+    }
+    .blood-row .name { font-size: 14px; color: var(--text-muted); }
+    .blood-row .val { font-size: 14px; }
+
+    .ammo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .ammo-cell .n { font-size: 13px; color: var(--text-muted); }
+    .ammo-cell .v {
+      font-size: 26px; font-weight: 500; line-height: 1.15;
+      transition: transform .2s var(--spring);
+    }
+    .ammo-cell:hover .v { transform: scale(1.04); }
+
+    .gain { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .gain th { color: var(--text-faint); font-weight: 400; padding: 4px 2px 8px; text-align: center; }
+    .gain th:first-child, .gain td:first-child { text-align: left; }
+    .gain td { padding: 5px 2px; text-align: center; font-size: 13px; }
+    .posture {
+      margin-top: 10px; display: flex; align-items: center; gap: 10px;
+    }
+    .posture label { font-size: 13px; color: var(--text-muted); }
+    .posture strong { font-size: 18px; font-weight: 500; }
+
+    /* MD3 switch */
+    .switch-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 10px; font-size: 12px; color: var(--text-muted);
+    }
+    /* Switch — MD3 look + spring handle (creeper-qt) */
+    .switch {
+      width: 52px;
+      height: 32px;
+      border-radius: 999px;
+      background: transparent;
+      border: 2px solid var(--border-strong);
+      position: relative;
+      flex-shrink: 0;
+      transition:
+        background .32s var(--md-ease),
+        border-color .32s var(--md-ease);
+    }
+    .switch::before {
+      /* hover state layer */
+      content: "";
+      position: absolute;
+      inset: -8px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background .2s var(--md-ease);
+    }
+    .switch:hover::before {
+      background: color-mix(in srgb, var(--text) 6%, transparent);
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 4px;
+      width: 16px;
+      height: 16px;
+      margin-top: -8px;
+      border-radius: 50%;
+      background: var(--border-strong);
+      box-shadow: var(--elev-1);
+      transition:
+        transform .38s var(--md-spring),
+        width .28s var(--md-spring),
+        height .28s var(--md-spring),
+        margin .28s var(--md-spring),
+        background .28s var(--md-ease),
+        left .38s var(--md-spring);
+    }
+    .switch:active::after {
+      width: 20px;
+      height: 20px;
+      margin-top: -10px;
+    }
+    .switch.on {
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+    .switch.on:hover::before {
+      background: color-mix(in srgb, var(--blue) 12%, transparent);
+    }
+    .switch.on::after {
+      left: 28px;
+      width: 24px;
+      height: 24px;
+      margin-top: -12px;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 2px 8px rgba(0,0,0,.12);
+    }
+    .switch.on:active::after {
+      width: 28px;
+      left: 22px;
+      margin-top: -14px;
+      height: 28px;
+    }
+
+    .banner {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      z-index: 40; max-width: min(860px, 94vw);
+      padding: 8px 16px; border-radius: 999px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px var(--shadow);
+      font-size: 11px; color: var(--text-muted); text-align: center;
+    }
+    .banner b { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <img class="logo" src="./logo.png" alt="logo" width="34" height="34"
+           onerror="this.outerHTML='<div class=logo style=display:grid;place-items:center;color:var(--blue);font-size:16px;font-weight:600>R</div>'" />
+      <div class="mode"><button class="mode-btn" type="button" data-go="laser"><span class="icon">◈</span><span class="sub">Laser</span></button></div>
+      <div class="mode"><button class="mode-btn active" type="button" data-go="sdr"><span class="icon">◎</span><span class="sub">SDR</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="radar"><span class="icon">◉</span><span class="sub">Radar</span></button></div>
+      <div class="mode"><button class="mode-btn" type="button" data-go="serial"><span class="icon">⇄</span><span class="sub">Serial</span></button></div>
+      <div class="rail-stats num">
+        <div id="pktLabel">0 pkt</div>
+        <div class="faint" id="ageLabel">0s</div>
+      </div>
+      <button class="theme-toggle" type="button" id="themeBtn" title="深浅色">
+        <span class="sun">☀</span><span class="moon">☾</span><span class="knob"></span>
+      </button>
+    </aside>
+    <div></div>
+
+    <section class="main">
+      <header class="topbar">
+        <h1>SDR Workspace</h1>
+        <span class="sub">white battle board / live robot overlay</span>
+        <div class="spacer"></div>
+        <button class="btn-ghost" type="button" id="resetBtn">Reset View</button>
+      </header>
+
+      <!-- SMALL MAP -->
+      <div class="map-frame">
+        <div class="map-tools">
+          <button class="chip on" type="button" id="gridChip">Grid</button>
+          <button class="chip on" type="button" id="labelChip">Labels</button>
+          <button class="chip on" type="button" id="ringChip">Heat ring</button>
+        </div>
+        <div class="map-live">
+          <span class="live-dot" id="liveDot"></span>
+          <span id="liveText">Signal feed · idle</span>
+        </div>
+        <div class="map-canvas show-grid" id="mapCanvas"></div>
+      </div>
+
+      <!-- LARGE BOTTOM -->
+      <div class="bottom">
+        <div class="card" id="selCard">
+          <h2>选中单位</h2>
+          <div class="subtitle">点击地图 marker 或列表切换</div>
+          <div class="sel-head">
+            <div class="sel-swatch" id="selSwatch" style="background:#3b82f6"></div>
+            <div>
+              <strong id="selName">英雄</strong>
+              <span id="selTeam">主战 · 实时状态</span>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric" style="grid-column:1/-1">
+              <label>血量</label>
+              <div class="val num" id="selHp">168 / 200</div>
+              <div class="hp-track pulse" id="selHpTrack" style="margin-top:8px"><i id="selHpFill" style="width:84%;background:#3b82f6"></i></div>
+            </div>
+            <div class="metric">
+              <label>弹药</label>
+              <div class="val num" id="selAmmo">86</div>
+            </div>
+            <div class="metric">
+              <label>坐标</label>
+              <div class="val num" style="font-size:14px" id="selPos">x −1240 · y 860</div>
+            </div>
+          </div>
+          <div class="slider-row">
+            <label>缩放</label>
+            <span class="slider-wrap"><input type="range" id="zoomSlider" min="55" max="160" value="100" /></span>
+            <span class="out num" id="zoomOut">1.00×</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>机器人列表</h2>
+          <div class="subtitle">血条动画 · 点击选中</div>
+          <div class="robot-list" id="robotList"></div>
+        </div>
+
+        <div class="card">
+          <h2>经济 / 占领</h2>
+          <div class="subtitle">当前资源 / 已获得资源</div>
+          <div class="econ num">
+            <span class="big" id="goldRem">320</span>
+            <span class="small" id="goldTot">/ 800</span>
+          </div>
+          <div class="hp-track"><i id="goldBar" style="width:40%;background:var(--blue)"></i></div>
+          <div class="occ" id="occ">
+            <span data-i="0">A</span><span data-i="1">B</span><span data-i="2">C</span>
+            <span data-i="3">D</span><span data-i="4">E</span><span data-i="5">F</span>
+          </div>
+          <div class="slider-row" style="margin-top:14px">
+            <label>透明度</label>
+            <span class="slider-wrap"><input type="range" id="mapOpacity" min="40" max="100" value="100" /></span>
+            <span class="out num" id="opOut">100%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LARGE RIGHT -->
+    <aside class="side">
+      <div class="card">
+        <h2>连接</h2>
+        <div><span class="chip bad" id="feedChip">● Signal feed</span></div>
+        <div class="field">
+          <label>IP</label>
+          <input class="num" value="tcp://127.0.0.1:5555" spellcheck="false" />
+        </div>
+        <button class="btn primary" type="button">Reconnect radar stream</button>
+        <div class="meta">
+          <span>Packets</span><strong class="num" id="packets">0</strong>
+          <span>Last live</span><strong class="num" id="lastLive">--</strong>
+        </div>
+        <div class="switch-row">
+          <span>模拟数据流（demo）</span>
+          <button class="switch" type="button" id="demoSwitch"></button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>血量总览</h2>
+        <div class="subtitle">主战单位与关键建筑生命值</div>
+        <div id="bloodList"></div>
+      </div>
+
+      <div class="card">
+        <h2>弹药</h2>
+        <div class="subtitle">即时载弹量</div>
+        <div class="ammo-grid" id="ammoGrid"></div>
+      </div>
+
+      <div class="card">
+        <h2>增益矩阵</h2>
+        <div class="subtitle">关键 buff 参数</div>
+        <table class="gain">
+          <thead>
+            <tr><th>机器人</th><th>回血</th><th>冷却</th><th>防御</th><th>降防</th><th>攻击</th></tr>
+          </thead>
+          <tbody id="gainBody"></tbody>
+        </table>
+        <div class="posture">
+          <label>哨兵姿态</label>
+          <strong class="num" id="sentryPosture">0</strong>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="banner">
+    <b>SDR</b> · creeper-qt 控件 · 地图 1659:916 letterbox
+    <a href="./laser-workspace.html" style="color:var(--blue);text-decoration:none;margin:0 4px">Laser</a>
+    <a href="./radar-workspace.html" style="color:var(--blue);text-decoration:none;margin:0 4px">Radar</a>
+    <a href="./serial-workspace.html" style="color:var(--blue);text-decoration:none;margin:0 4px">Serial</a>
+    <a href="./index.html" style="color:var(--blue);text-decoration:none;margin:0 4px">总览</a>
+  </div>
+
+  <script>
+    const ROBOTS = [
+      { id:"hero", name:"英雄", hex:"#3b82f6", blood:168, max:200, ammo:86, x:-1240, y:860, heat:42, gain:[1,120,2,0,15], pos:[28,42] },
+      { id:"eng", name:"工程", hex:"#14b8a6", blood:200, max:200, ammo:null, x:-980, y:420, heat:0, gain:[0,80,1,0,0], pos:[22,58] },
+      { id:"inf1", name:"步兵1", hex:"#22c55e", blood:140, max:200, ammo:120, x:-400, y:1100, heat:65, gain:[1,100,1,0,10], pos:[35,35] },
+      { id:"inf2", name:"步兵2", hex:"#eab308", blood:55, max:200, ammo:45, x:920, y:-200, heat:88, gain:[0,60,0,1,5], pos:[68,48] },
+      { id:"drone", name:"无人机", hex:"#f97316", blood:null, max:null, ammo:30, x:200, y:1400, heat:20, gain:null, pos:[55,28] },
+      { id:"sen", name:"哨兵", hex:"#a855f7", blood:360, max:400, ammo:200, x:1500, y:-800, heat:30, gain:[2,140,3,0,20], pos:[74,62] },
+    ];
+    const OUTPOST = { name:"前哨站", hex:"#14b8a6", blood:150, max:200 };
+
+    let selected = "hero";
+    let demoOn = false;
+    let demoTimer = null;
+    let packets = 0;
+    let zoom = 1;
+    const mapCanvas = document.getElementById("mapCanvas");
+    const root = document.documentElement;
+
+    function hpFillColor(ratio, hex) {
+      if (ratio > 0.5) return hex;
+      if (ratio > 0.25) return getComputedStyle(root).getPropertyValue("--yellow").trim() || "#f59e0b";
+      return getComputedStyle(root).getPropertyValue("--red").trim() || "#ef4444";
+    }
+
+    function select(id) {
+      selected = id;
+      const r = ROBOTS.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById("selSwatch").style.background = r.hex;
+      document.getElementById("selName").textContent = r.name;
+      document.getElementById("selTeam").textContent = "主战 · 实时状态";
+      if (r.blood != null) {
+        document.getElementById("selHp").textContent = `${r.blood} / ${r.max}`;
+        const ratio = r.blood / r.max;
+        const fill = document.getElementById("selHpFill");
+        const track = document.getElementById("selHpTrack");
+        fill.style.width = Math.round(ratio * 100) + "%";
+        fill.style.background = hpFillColor(ratio, r.hex);
+        track.classList.remove("pulse");
+        void track.offsetWidth;
+        track.classList.add("pulse");
+      } else {
+        document.getElementById("selHp").textContent = "—";
+        document.getElementById("selHpFill").style.width = "0%";
+      }
+      document.getElementById("selAmmo").textContent = r.ammo == null ? "—" : String(r.ammo);
+      document.getElementById("selPos").textContent = `x ${r.x} · y ${r.y}`;
+      renderMarkers();
+      renderList();
+    }
+
+    function renderMarkers() {
+      const showHeat = document.getElementById("ringChip").classList.contains("on");
+      mapCanvas.querySelectorAll(".marker").forEach(n => n.remove());
+      ROBOTS.forEach(r => {
+        const hp = r.blood == null || r.max == null ? 100 : Math.round((r.blood / r.max) * 100);
+        const el = document.createElement("div");
+        el.className = "marker" + (r.id === selected ? " selected" : "");
+        el.style.left = r.pos[0] + "%";
+        el.style.top = r.pos[1] + "%";
+        el.style.setProperty("--m", r.hex);
+        el.style.setProperty("--hp", hp);
+        el.style.setProperty("--heat", showHeat ? r.heat : 0);
+        el.innerHTML = `<div class="ring"></div><div class="core"></div><span class="tag">${r.name}</span>`;
+        el.addEventListener("click", () => select(r.id));
+        mapCanvas.appendChild(el);
+      });
+    }
+
+    function renderList() {
+      document.getElementById("robotList").innerHTML = ROBOTS.map(r => {
+        const ratio = r.blood == null ? 0 : r.blood / r.max;
+        const fill = r.blood == null ? "transparent" : hpFillColor(ratio, r.hex);
+        const w = r.blood == null ? 0 : Math.round(ratio * 100);
+        return `<div class="robot-row ${r.id===selected?"selected":""}" data-id="${r.id}">
+          <span class="sw" style="background:${r.hex}"></span>
+          <div class="name">${r.name}</div>
+          <div class="mini-bar"><i style="width:${w}%;background:${fill}"></i></div>
+          <div class="ammo num">${r.ammo==null?"—":r.ammo}</div>
+        </div>`;
+      }).join("");
+      document.querySelectorAll(".robot-row").forEach(row => {
+        row.addEventListener("click", () => select(row.dataset.id));
+      });
+      // spring reflow
+      requestAnimationFrame(() => {
+        document.querySelectorAll(".robot-row .mini-bar > i").forEach(i => {
+          const w = i.style.width;
+          i.style.width = "0%";
+          requestAnimationFrame(() => { i.style.width = w; });
+        });
+      });
+    }
+
+    function renderBlood() {
+      const rows = [
+        ...ROBOTS.filter(r => r.blood != null).map(r => ({ name:r.name, blood:r.blood, max:r.max, hex:r.hex })),
+        OUTPOST,
+      ];
+      document.getElementById("bloodList").innerHTML = rows.map(r => {
+        const ratio = r.blood / r.max;
+        return `<div class="blood-row">
+          <div class="row"><span class="name">${r.name}</span><span class="val num">${r.blood}</span></div>
+          <div class="hp-track"><i style="width:${Math.round(ratio*100)}%;background:${hpFillColor(ratio,r.hex)}"></i></div>
+        </div>`;
+      }).join("");
+      requestAnimationFrame(() => {
+        document.querySelectorAll("#bloodList .hp-track > i").forEach(i => {
+          const w = i.style.width;
+          i.style.width = "0%";
+          requestAnimationFrame(() => { i.style.width = w; });
+        });
+      });
+    }
+
+    function renderAmmo() {
+      document.getElementById("ammoGrid").innerHTML = ROBOTS.filter(r => r.ammo != null).map(r =>
+        `<div class="ammo-cell"><div class="n">${r.name}</div><div class="v num" style="color:${r.hex}">${r.ammo}</div></div>`
+      ).join("");
+    }
+
+    function renderGain() {
+      document.getElementById("gainBody").innerHTML = ROBOTS.filter(r => r.gain).map(r =>
+        `<tr><td style="color:${r.hex}">${r.name}</td>${r.gain.map(v=>`<td class="num">${v}</td>`).join("")}</tr>`
+      ).join("");
+    }
+
+    function renderOcc(bits=[1,0,1,0,0,1]) {
+      document.querySelectorAll("#occ span").forEach((el,i) => el.classList.toggle("on", !!bits[i]));
+    }
+
+    function setLive(ok) {
+      document.getElementById("liveDot").classList.toggle("ok", ok);
+      document.getElementById("liveText").textContent = ok ? "Signal feed · live" : "Signal feed · idle";
+      const chip = document.getElementById("feedChip");
+      chip.className = "chip " + (ok ? "ok" : "bad");
+      chip.textContent = "● Signal feed";
+    }
+
+    function tickDemo() {
+      packets += 1 + Math.floor(Math.random()*3);
+      document.getElementById("packets").textContent = String(packets);
+      document.getElementById("pktLabel").textContent = packets + " pkt";
+      document.getElementById("lastLive").textContent = "0.1s";
+      setLive(true);
+      ROBOTS.forEach(r => {
+        if (r.blood != null) r.blood = Math.max(0, Math.min(r.max, r.blood + Math.round((Math.random()-0.55)*8)));
+        if (r.ammo != null) r.ammo = Math.max(0, r.ammo + (Math.random()>0.72 ? -1 : 0));
+        r.heat = Math.max(0, Math.min(100, r.heat + Math.round((Math.random()-0.5)*12)));
+        r.pos[0] = Math.max(8, Math.min(92, r.pos[0] + (Math.random()-0.5)*1.1));
+        r.pos[1] = Math.max(10, Math.min(90, r.pos[1] + (Math.random()-0.5)*1.1));
+      });
+      const rem = Math.max(0, Number(document.getElementById("goldRem").textContent) + Math.round((Math.random()-0.6)*4));
+      document.getElementById("goldRem").textContent = String(rem);
+      document.getElementById("goldBar").style.width = Math.round(rem/800*100) + "%";
+      // soft update without full re-anim
+      document.querySelectorAll("#bloodList .blood-row").forEach((row, i) => {
+        const list = [...ROBOTS.filter(r=>r.blood!=null), OUTPOST];
+        const r = list[i]; if (!r) return;
+        const ratio = r.blood / r.max;
+        row.querySelector(".val").textContent = r.blood;
+        const bar = row.querySelector(".hp-track > i");
+        bar.style.width = Math.round(ratio*100)+"%";
+        bar.style.background = hpFillColor(ratio, r.hex);
+      });
+      renderMarkers();
+      renderList();
+      select(selected);
+      renderAmmo();
+    }
+
+    // theme
+    function setTheme(m) {
+      root.setAttribute("data-theme", m);
+      localStorage.setItem("radar-ui-mock-theme", m);
+    }
+    setTheme(localStorage.getItem("radar-ui-mock-theme") || "light");
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      setTheme(root.getAttribute("data-theme")==="dark" ? "light" : "dark");
+    });
+
+    // chips
+    document.getElementById("gridChip").addEventListener("click", function(){
+      this.classList.toggle("on");
+      mapCanvas.classList.toggle("show-grid", this.classList.contains("on"));
+    });
+    document.getElementById("labelChip").addEventListener("click", function(){
+      this.classList.toggle("on");
+      mapCanvas.classList.toggle("hide-labels", !this.classList.contains("on"));
+    });
+    document.getElementById("ringChip").addEventListener("click", function(){
+      this.classList.toggle("on");
+      renderMarkers();
+    });
+
+    // creeper-qt: water ripple on press
+    function spawnRipple(e, el) {
+      const rect = el.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 2.2;
+      const x = e.clientX - rect.left - size / 2;
+      const y = e.clientY - rect.top - size / 2;
+      const wave = document.createElement("span");
+      wave.className = "ripple";
+      wave.style.width = wave.style.height = size + "px";
+      wave.style.left = x + "px";
+      wave.style.top = y + "px";
+      el.appendChild(wave);
+      wave.addEventListener("animationend", () => wave.remove());
+    }
+    document.addEventListener("pointerdown", (e) => {
+      const el = e.target.closest(".btn, .btn-ghost, .chip, .mode-btn, .robot-row");
+      if (!el) return;
+      spawnRipple(e, el);
+    });
+
+    // MD3 slider active track via --pct
+    function bindSlider(el, onInput) {
+      const sync = () => {
+        const min = Number(el.min), max = Number(el.max), val = Number(el.value);
+        const pct = ((val - min) / (max - min)) * 100;
+        el.style.setProperty("--pct", pct + "%");
+        onInput(val);
+      };
+      el.addEventListener("input", sync);
+      sync();
+    }
+
+    const zoomSlider = document.getElementById("zoomSlider");
+    bindSlider(zoomSlider, (val) => {
+      zoom = val / 100;
+      mapCanvas.style.transform = `scale(${zoom})`;
+      document.getElementById("zoomOut").textContent = zoom.toFixed(2) + "×";
+    });
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      zoom = 1;
+      zoomSlider.value = 100;
+      zoomSlider.dispatchEvent(new Event("input"));
+      mapCanvas.style.transform = "scale(1)";
+    });
+    const opSlider = document.getElementById("mapOpacity");
+    bindSlider(opSlider, (v) => {
+      mapCanvas.style.opacity = String(v / 100);
+      document.getElementById("opOut").textContent = v + "%";
+    });
+
+    document.getElementById("demoSwitch").addEventListener("click", function(){
+      demoOn = !demoOn;
+      this.classList.toggle("on", demoOn);
+      if (demoOn) { demoTimer = setInterval(tickDemo, 400); tickDemo(); }
+      else { clearInterval(demoTimer); setLive(false); document.getElementById("lastLive").textContent = "--"; }
+    });
+
+    const t0 = Date.now();
+    setInterval(() => {
+      document.getElementById("ageLabel").textContent = Math.floor((Date.now()-t0)/1000) + "s";
+    }, 1000);
+
+    renderMarkers();
+    renderList();
+    renderBlood();
+    renderAmmo();
+    renderGain();
+    renderOcc();
+    select("hero");
+
+    document.querySelectorAll("[data-go]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const t = btn.dataset.go;
+        if (t === "laser") location.href = "./laser-workspace.html";
+        if (t === "radar") location.href = "./radar-workspace.html";
+        if (t === "serial") location.href = "./serial-workspace.html";
+      });
+    });
+  </script>
+</body>
+</html>

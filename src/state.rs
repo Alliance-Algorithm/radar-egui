@@ -2,9 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::laser::protocol::LaserObservation;
 use crate::serial::data_format::SerialData;
-use crate::zmq::data_format::{
-    ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, ZmqData,
-};
+use crate::zmq::data_format::{ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, ZmqData};
 
 #[derive(Clone)]
 pub struct ZmqReader {
@@ -26,7 +24,9 @@ impl ZmqReader {
     pub fn new_pair() -> (Self, ZmqWriter) {
         let inner = Arc::new(Mutex::new(ZmqData::default()));
         (
-            Self { inner: inner.clone() },
+            Self {
+                inner: inner.clone(),
+            },
             ZmqWriter { inner },
         )
     }
@@ -81,7 +81,16 @@ impl Default for SerialReader {
 impl SerialReader {
     pub fn new_pair() -> (Self, SerialWriter) {
         let inner = Arc::new(Mutex::new(SerialData::default()));
-        (Self { inner: inner.clone() }, SerialWriter { inner })
+        (
+            Self {
+                inner: inner.clone(),
+            },
+            SerialWriter { inner },
+        )
+    }
+
+    pub fn snapshot(&self) -> Option<SerialData> {
+        self.inner.lock().ok().map(|g| g.clone())
     }
 
     pub fn inner(&self) -> Arc<Mutex<SerialData>> {
@@ -144,9 +153,41 @@ impl LaserObservationWriter {
     }
 }
 
+#[derive(Clone)]
 pub struct LaserSnapshot {
     pub observation: LaserObservation,
     pub online: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serial_reader_snapshot_returns_detached_clone() {
+        let (reader, writer) = SerialReader::new_pair();
+
+        let snapshot = reader.snapshot();
+        assert!(snapshot.is_some(), "snapshot should be available");
+        let Some(snapshot) = snapshot else {
+            return;
+        };
+
+        let mut updated = false;
+        if let Ok(mut shared) = writer.inner().lock() {
+            shared.game_state_data.stage_remain_time = 42;
+            updated = true;
+        }
+        assert!(updated, "serial state lock should be available");
+
+        assert_eq!(snapshot.game_state_data.stage_remain_time, 0);
+        assert_eq!(
+            reader
+                .snapshot()
+                .map(|data| data.game_state_data.stage_remain_time),
+            Some(42)
+        );
+    }
 }
 
 use crate::pointcloud::protocol::PointCloudFrame;

@@ -1,7 +1,7 @@
-mod laser_panel;
 mod minimap;
 mod panels;
+mod serial_panel;
 
-pub use laser_panel::LaserPanel;
-pub use minimap::MinimapWidget;
+pub use minimap::{demo_receive_sdr, robot_markers, MinimapOptions, MinimapWidget};
 pub use panels::StatusPanels;
+pub use serial_panel::{SerialFrameLogLine, SerialLogKind, SerialPanel};
