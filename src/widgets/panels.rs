@@ -1,7 +1,7 @@
 use egui::{Color32, RichText, Vec2};
 
-use crate::shared_data::SharedData;
 use crate::theme;
+use crate::shared_data::SharedData;
 
 pub struct StatusPanels;
 
@@ -10,8 +10,10 @@ impl StatusPanels {
         Self
     }
 
-    pub fn show(&self, ui: &mut egui::Ui, shared: Option<&SharedData>) {
-        let Some(info) = shared else { return; };
+    pub fn show(&self, ui: &mut egui::Ui, info: Option<&SharedData>) {
+        let Some(info) = info else {
+            return;
+        };
 
         self.card(
             ui,
@@ -19,7 +21,13 @@ impl StatusPanels {
             "主战单位与关键建筑生命值",
             |ui| {
                 self.blood_row(ui, "英雄", info.sdr_blood.hero_blood, 200, theme::HERO_COLOR);
-                self.blood_row(ui, "工程", info.sdr_blood.engineer_blood, 200, theme::ENGINEER_COLOR);
+                self.blood_row(
+                    ui,
+                    "工程",
+                    info.sdr_blood.engineer_blood,
+                    200,
+                    theme::ENGINEER_COLOR,
+                );
                 self.blood_row(
                     ui,
                     "步兵1",
@@ -35,7 +43,13 @@ impl StatusPanels {
                     theme::INFANTRY2_COLOR,
                 );
                 self.blood_row(ui, "前哨站", info.sdr_blood.reserved, 200, theme::TEAL);
-                self.blood_row(ui, "哨兵", info.sdr_blood.sentry_blood, 400, theme::SENTINEL_COLOR);
+                self.blood_row(
+                    ui,
+                    "哨兵",
+                    info.sdr_blood.sentry_blood,
+                    400,
+                    theme::SENTINEL_COLOR,
+                );
             },
         );
 
@@ -107,11 +121,56 @@ impl StatusPanels {
                     }
                     ui.end_row();
 
-                    self.gain_row(ui, "英雄", info.sdr_gain.hero_hp_recovery, info.sdr_gain.hero_cooling_acceleration, info.sdr_gain.hero_defence, info.sdr_gain.hero_negative_defence, info.sdr_gain.hero_attack, theme::HERO_COLOR);
-                    self.gain_row(ui, "工程", info.sdr_gain.engineer_hp_recovery, info.sdr_gain.engineer_cooling_acceleration, info.sdr_gain.engineer_defence, info.sdr_gain.engineer_negative_defence, info.sdr_gain.engineer_attack, theme::ENGINEER_COLOR);
-                    self.gain_row(ui, "步兵1", info.sdr_gain.infantry_3_hp_recovery, info.sdr_gain.infantry_3_cooling_acceleration, info.sdr_gain.infantry_3_defence, info.sdr_gain.infantry_3_negative_defence, info.sdr_gain.infantry_3_attack, theme::INFANTRY1_COLOR);
-                    self.gain_row(ui, "步兵2", info.sdr_gain.infantry_4_hp_recovery, info.sdr_gain.infantry_4_cooling_acceleration, info.sdr_gain.infantry_4_defence, info.sdr_gain.infantry_4_negative_defence, info.sdr_gain.infantry_4_attack, theme::INFANTRY2_COLOR);
-                    self.gain_row(ui, "哨兵", info.sdr_gain.sentry_hp_recovery, info.sdr_gain.sentry_cooling_acceleration, info.sdr_gain.sentry_defence, info.sdr_gain.sentry_negative_defence, info.sdr_gain.sentry_attack, theme::SENTINEL_COLOR);
+                    self.gain_row(
+                        ui,
+                        "英雄",
+                        info.sdr_gain.hero_hp_recovery,
+                        info.sdr_gain.hero_cooling_acceleration,
+                        info.sdr_gain.hero_defence,
+                        info.sdr_gain.hero_negative_defence,
+                        info.sdr_gain.hero_attack,
+                        theme::HERO_COLOR,
+                    );
+                    self.gain_row(
+                        ui,
+                        "工程",
+                        info.sdr_gain.engineer_hp_recovery,
+                        info.sdr_gain.engineer_cooling_acceleration,
+                        info.sdr_gain.engineer_defence,
+                        info.sdr_gain.engineer_negative_defence,
+                        info.sdr_gain.engineer_attack,
+                        theme::ENGINEER_COLOR,
+                    );
+                    self.gain_row(
+                        ui,
+                        "步兵1",
+                        info.sdr_gain.infantry_3_hp_recovery,
+                        info.sdr_gain.infantry_3_cooling_acceleration,
+                        info.sdr_gain.infantry_3_defence,
+                        info.sdr_gain.infantry_3_negative_defence,
+                        info.sdr_gain.infantry_3_attack,
+                        theme::INFANTRY1_COLOR,
+                    );
+                    self.gain_row(
+                        ui,
+                        "步兵2",
+                        info.sdr_gain.infantry_4_hp_recovery,
+                        info.sdr_gain.infantry_4_cooling_acceleration,
+                        info.sdr_gain.infantry_4_defence,
+                        info.sdr_gain.infantry_4_negative_defence,
+                        info.sdr_gain.infantry_4_attack,
+                        theme::INFANTRY2_COLOR,
+                    );
+                    self.gain_row(
+                        ui,
+                        "哨兵",
+                        info.sdr_gain.sentry_hp_recovery,
+                        info.sdr_gain.sentry_cooling_acceleration,
+                        info.sdr_gain.sentry_defence,
+                        info.sdr_gain.sentry_negative_defence,
+                        info.sdr_gain.sentry_attack,
+                        theme::SENTINEL_COLOR,
+                    );
                 });
 
             ui.add_space(10.0);
@@ -228,7 +287,17 @@ impl StatusPanels {
         ui.end_row();
     }
 
-    fn gain_row(&self, ui: &mut egui::Ui, name: &str, hp: u8, cooling: u16, def: u8, neg_def: u8, atk: u16, color: Color32) {
+    fn gain_row(
+        &self,
+        ui: &mut egui::Ui,
+        name: &str,
+        hp: u8,
+        cooling: u16,
+        def: u8,
+        neg_def: u8,
+        atk: u16,
+        color: Color32,
+    ) {
         ui.label(RichText::new(name).color(color).size(14.0));
         ui.label(
             RichText::new(hp.to_string())
