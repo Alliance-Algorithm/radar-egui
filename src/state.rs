@@ -1,108 +1,48 @@
 use std::sync::{Arc, Mutex};
 
 use crate::laser::protocol::LaserObservation;
-use crate::serial::data_format::SerialData;
-use crate::zmq::data_format::{ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess, ZmqData};
+use crate::shared_data::SharedData;
+
+// ── Shared data handle (single source of truth) ──
 
 #[derive(Clone)]
-pub struct ZmqReader {
-    inner: Arc<Mutex<ZmqData>>,
+pub struct SharedReader {
+    inner: Arc<Mutex<SharedData>>,
 }
 
 #[derive(Clone)]
-pub struct ZmqWriter {
-    inner: Arc<Mutex<ZmqData>>,
+pub struct SharedWriter {
+    inner: Arc<Mutex<SharedData>>,
 }
 
-impl Default for ZmqReader {
+impl Default for SharedReader {
     fn default() -> Self {
         Self::new_pair().0
     }
 }
 
-impl ZmqReader {
-    pub fn new_pair() -> (Self, ZmqWriter) {
-        let inner = Arc::new(Mutex::new(ZmqData::default()));
-        (
-            Self {
-                inner: inner.clone(),
-            },
-            ZmqWriter { inner },
-        )
+impl SharedReader {
+    pub fn new_pair() -> (Self, SharedWriter) {
+        let inner = Arc::new(Mutex::new(SharedData::default()));
+        (Self { inner: inner.clone() }, SharedWriter { inner })
     }
 
-    pub fn snapshot(&self) -> Option<ReceiveSdr> {
-        self.inner.lock().ok().and_then(|s| s.sdr.clone())
+    pub fn snapshot(&self) -> SharedData {
+        self.inner.lock().unwrap().clone()
     }
 
-    pub fn inner(&self) -> Arc<Mutex<ZmqData>> {
+    pub fn inner(&self) -> Arc<Mutex<SharedData>> {
         self.inner.clone()
     }
 }
 
-impl ZmqWriter {
-    pub fn publish_sdr(&self, signal: ReceiveSdr) {
-        if let Ok(mut state) = self.inner.lock() {
-            state.sdr = Some(signal);
-        }
-    }
-
-    pub fn publish_game_state(&self, data: TransmitGameState) {
-        if let Ok(mut state) = self.inner.lock() {
-            state.game_state = Some(data);
-        }
-    }
-
-    pub fn publish_radar_mark(&self, data: TransmitRadarMarkProcess) {
-        if let Ok(mut state) = self.inner.lock() {
-            state.radar_mark = Some(data);
-        }
-    }
-}
-
-// ── Serial shared state ──
-
-#[derive(Clone)]
-pub struct SerialReader {
-    inner: Arc<Mutex<SerialData>>,
-}
-
-#[derive(Clone)]
-pub struct SerialWriter {
-    inner: Arc<Mutex<SerialData>>,
-}
-
-impl Default for SerialReader {
-    fn default() -> Self {
-        Self::new_pair().0
-    }
-}
-
-impl SerialReader {
-    pub fn new_pair() -> (Self, SerialWriter) {
-        let inner = Arc::new(Mutex::new(SerialData::default()));
-        (
-            Self {
-                inner: inner.clone(),
-            },
-            SerialWriter { inner },
-        )
-    }
-
-    pub fn snapshot(&self) -> Option<SerialData> {
-        self.inner.lock().ok().map(|g| g.clone())
-    }
-
-    pub fn inner(&self) -> Arc<Mutex<SerialData>> {
+impl SharedWriter {
+    pub fn inner(&self) -> Arc<Mutex<SharedData>> {
         self.inner.clone()
     }
 }
 
-impl SerialWriter {
-    pub fn inner(&self) -> Arc<Mutex<SerialData>> {
-        self.inner.clone()
-    }
-}
+// ── Laser observation ──
 
 #[derive(Clone)]
 pub struct LaserObservationReader {
@@ -123,24 +63,14 @@ impl Default for LaserObservationReader {
 impl LaserObservationReader {
     pub fn new_pair() -> (Self, LaserObservationWriter) {
         let inner = Arc::new(Mutex::new(LaserObservation::default()));
-
-        (
-            Self {
-                inner: inner.clone(),
-            },
-            LaserObservationWriter { inner },
-        )
+        (Self { inner: inner.clone() }, LaserObservationWriter { inner })
     }
 
     pub fn snapshot(&self) -> Option<LaserSnapshot> {
         self.inner.lock().ok().map(|state| {
             let observation = state.clone();
             let online = observation.is_online();
-
-            LaserSnapshot {
-                observation,
-                online,
-            }
+            LaserSnapshot { observation, online }
         })
     }
 }
@@ -153,41 +83,9 @@ impl LaserObservationWriter {
     }
 }
 
-#[derive(Clone)]
 pub struct LaserSnapshot {
     pub observation: LaserObservation,
     pub online: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serial_reader_snapshot_returns_detached_clone() {
-        let (reader, writer) = SerialReader::new_pair();
-
-        let snapshot = reader.snapshot();
-        assert!(snapshot.is_some(), "snapshot should be available");
-        let Some(snapshot) = snapshot else {
-            return;
-        };
-
-        let mut updated = false;
-        if let Ok(mut shared) = writer.inner().lock() {
-            shared.game_state_data.stage_remain_time = 42;
-            updated = true;
-        }
-        assert!(updated, "serial state lock should be available");
-
-        assert_eq!(snapshot.game_state_data.stage_remain_time, 0);
-        assert_eq!(
-            reader
-                .snapshot()
-                .map(|data| data.game_state_data.stage_remain_time),
-            Some(42)
-        );
-    }
 }
 
 use crate::pointcloud::protocol::PointCloudFrame;
@@ -212,9 +110,7 @@ impl PointCloudFrameReader {
     pub fn new_pair() -> (Self, PointCloudFrameWriter) {
         let inner = Arc::new(Mutex::new(None));
         (
-            Self {
-                inner: inner.clone(),
-            },
+            Self { inner: inner.clone() },
             PointCloudFrameWriter { inner },
         )
     }
