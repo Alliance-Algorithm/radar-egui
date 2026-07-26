@@ -137,20 +137,18 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        let (zmq_reader, _zmq_writer) = ZmqReader::new_pair();
-        let (serial_reader, serial_writer) = SerialReader::new_pair();
+        let (shared_reader, _shared_writer) = SharedReader::new_pair();
+        let shared = shared_reader.inner();
         let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
 
         let zmq_sub = ZmqSubRuntime::start(
             &["tcp://127.0.0.1:5555".into(), "tcp://127.0.0.1:5556".into()],
-            zmq_reader.inner().clone(),
-            serial_reader.inner().clone(),
+            shared.clone(),
         );
 
         let zmq_pub = ZmqPubRuntime::start(
             "tcp://*:5557",
-            zmq_reader.inner().clone(),
-            serial_writer.inner(),
+            shared.clone(),
         );
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
@@ -246,13 +244,9 @@ impl RadarApp {
         match Serial::new(config) {
             Ok(port) => match port.clone_serial_port() {
                 Ok(port_tx) => {
-                    let rx =
-                        start_receiver(port, self.serial_reader.inner(), self.zmq_reader.inner());
-                    let tx = start_transmitter(
-                        port_tx,
-                        self.serial_reader.inner(),
-                        self.zmq_reader.inner(),
-                    );
+                    let shared = self.shared_reader.inner();
+                    let rx = start_receiver(port, shared.clone());
+                    let tx = start_transmitter(port_tx, shared.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
                     self.serial_open = true;
