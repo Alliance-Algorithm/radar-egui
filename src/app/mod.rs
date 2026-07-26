@@ -310,8 +310,8 @@ impl eframe::App for RadarApp {
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
         self.ensure_logo_texture(ctx);
-        let radar_snapshot = self.zmq_reader.snapshot();
-        self.update_connection_status(radar_snapshot.as_ref());
+        let snap = self.shared_reader.snapshot();
+        self.update_connection_status(&snap);
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();
         if self.active_tab == ActiveTab::Radar {
@@ -319,10 +319,10 @@ impl eframe::App for RadarApp {
         }
 
         match self.active_tab {
-            ActiveTab::Sdr => self.show_sdr_workspace(ctx, radar_snapshot.as_ref()),
+            ActiveTab::Sdr => self.show_sdr_workspace(ctx, &snap),
             ActiveTab::Laser => self.show_laser_workspace(ctx),
             ActiveTab::Radar => self.show_radar_workspace(ctx),
-            ActiveTab::Serial => self.show_serial_workspace(ctx),
+            ActiveTab::Serial => self.show_serial_workspace(ctx, &snap),
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(100));

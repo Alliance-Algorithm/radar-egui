@@ -1,14 +1,15 @@
 use super::chrome::{status_chip, white_card};
 use super::shell::SIDE_SERIAL;
 use super::RadarApp;
+use crate::shared_data::SharedData;
 use crate::theme;
 use crate::widgets::{SerialFrameLogLine, SerialLogKind, SerialPanel};
 
 impl RadarApp {
-    pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context) {
+    pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context, snap: &SharedData) {
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "serial_inspector", SIDE_SERIAL, |app, ui| {
-            app.show_serial_sidebar(ui);
+            app.show_serial_sidebar(ui, snap);
         });
         self.show_main_column(
             ctx,
@@ -32,28 +33,20 @@ impl RadarApp {
                 ui.allocate_ui_at_rect(body, |ui| {
                     ui.set_min_size(body.size());
                     ui.set_max_size(body.size());
-                    if let Some(data) = app.serial_reader.snapshot() {
-                        SerialPanel::new().show_monitor(
-                            ui,
-                            &data,
-                            app.serial_open,
-                            &app.serial_port_name,
-                            app.serial_baud,
-                            &app.serial_frame_log,
-                        );
-                    } else {
-                        ui.label(
-                            egui::RichText::new("无法读取 SerialData")
-                                .color(theme::RED)
-                                .size(13.0),
-                        );
-                    }
+                    SerialPanel::new().show_monitor(
+                        ui,
+                        snap,
+                        app.serial_open,
+                        &app.serial_port_name,
+                        app.serial_baud,
+                        &app.serial_frame_log,
+                    );
                 });
             },
         );
     }
 
-    pub(super) fn show_serial_sidebar(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn show_serial_sidebar(&mut self, ui: &mut egui::Ui, snap: &SharedData) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -209,11 +202,8 @@ impl RadarApp {
                 });
 
                 ui.add_space(12.0);
-                if let Some(snap) = self.serial_reader.snapshot() {
-                    SerialPanel::new().show_minimap_sidebar(ui, &snap.minimap_receive_radar_data);
-                    ui.add_space(12.0);
-                    SerialPanel::new().show_dirty_flags(ui, &snap);
-                }
+                SerialPanel::new().show_minimap_sidebar(ui, &snap.minimap_receive);
+                ui.add_space(12.0);
             });
     }
 

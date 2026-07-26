@@ -3,7 +3,7 @@ use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
 use crate::theme;
 use crate::widgets::{
-    demo_receive_sdr, robot_markers, MinimapOptions, MinimapWidget, StatusPanels,
+    MinimapWidget, StatusPanels,
 };
 use crate::shared_data::SharedData;
 
@@ -11,18 +11,9 @@ impl RadarApp {
     pub(super) fn show_sdr_workspace(
         &mut self,
         ctx: &egui::Context,
-        live_snapshot: Option<&SharedData>,
+        live_snapshot: &SharedData,
     ) {
-        let demo = if self.sdr_demo {
-            Some(demo_receive_sdr())
-        } else {
-            None
-        };
-        let radar_snapshot = if self.sdr_demo {
-            demo.as_ref()
-        } else {
-            live_snapshot
-        };
+        let radar_snapshot = Some(live_snapshot);
 
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "sdr_inspector", SIDE_SDR, |app, ui| {
@@ -397,7 +388,7 @@ impl RadarApp {
                                     |ui| {
                                         ui.label(
                                             egui::RichText::new(if robot.ammo > 0 {
-                                                robot.ammo.to_string()
+                                                robot.sdr_ammo.to_string()
                                             } else {
                                                 "—".into()
                                             })
@@ -445,11 +436,7 @@ impl RadarApp {
                 };
                 hp_bar(ui, ratio, theme::BLUE);
                 ui.add_space(10.0);
-                ui.label("（无上位数据）");
-                                ui.label(egui::RichText::new(*label).color(text).size(14.0));
-                            });
-                    }
-                });
+                ui.label("（无有效数据）");
             });
         });
     }
