@@ -208,8 +208,8 @@ fn metric_card(ui: &mut Ui, label: &str, val: &str, sub: &str, val_color: egui::
 fn show_game_state(ui: &mut Ui, gs: &GameStateData, winner: u8) {
     let phase = phase_label(gs.game_progress);
     let remain = gs.stage_remain_time;
-    let m = remain / 60;
-    let s = remain % 60;
+    let minutes = remain / 60;
+    let seconds = remain % 60;
     let total = 420u16;
     let elapsed = total.saturating_sub(remain.min(total));
     let pct = if total == 0 {
@@ -227,7 +227,7 @@ fn show_game_state(ui: &mut Ui, gs: &GameStateData, winner: u8) {
             ui.label(RichText::new(phase).color(theme::text()).size(18.0));
             ui.label(
                 RichText::new(format!(
-                    "剩余 {m:02}:{s:02} · UNIX {}",
+                    "剩余 {minutes:02}:{seconds:02} · UNIX {}",
                     if gs.sync_timestamp == 0 {
                         "—".into()
                     } else {

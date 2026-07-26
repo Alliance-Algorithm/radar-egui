@@ -74,7 +74,7 @@ pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
     Ok(())
 }
 
-pub fn start_zmq_pub(
+pub fn zmq_start_pub(
     pub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
     rx: mpsc::Receiver<usize>,
@@ -119,7 +119,7 @@ pub fn start_zmq_pub(
     })
 }
 
-pub fn start_zmq_sub(
+pub fn zmq_start_sub(
     sub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
@@ -127,61 +127,61 @@ pub fn start_zmq_sub(
         let Ok(bytes) = sub_socket.recv_bytes(0) else { continue };
         // SDR
         if let Ok(msg) = serde_json::from_slice::<SdrMsg>(&bytes) {
-            if let Ok(mut s) = shared.lock() {
-                s.enemy_hero.x = msg.position.hero_x;
-                s.enemy_hero.y = msg.position.hero_y;
-                s.enemy_engineer.x = msg.position.engineer_x;
-                s.enemy_engineer.y = msg.position.engineer_y;
-                s.enemy_infantry_3.x = msg.position.infantry_3_x;
-                s.enemy_infantry_3.y = msg.position.infantry_3_y;
-                s.enemy_infantry_4.x = msg.position.infantry_4_x;
-                s.enemy_infantry_4.y = msg.position.infantry_4_y;
-                s.enemy_aerial.x = msg.position.aerial_x;
-                s.enemy_aerial.y = msg.position.aerial_y;
-                s.enemy_sentry.x = msg.position.sentry_x;
-                s.enemy_sentry.y = msg.position.sentry_y;
-                s.sdr_blood = msg.blood;
-                s.sdr_ammo = msg.ammo;
-                s.sdr_state = msg.state;
-                s.sdr_gain = msg.gain;
-                s.sdr_jamming_key = msg.key;
+            if let Ok(mut guard) = shared.lock() {
+                guard.enemy_hero.x = msg.position.hero_x;
+                guard.enemy_hero.y = msg.position.hero_y;
+                guard.enemy_engineer.x = msg.position.engineer_x;
+                guard.enemy_engineer.y = msg.position.engineer_y;
+                guard.enemy_infantry_3.x = msg.position.infantry_3_x;
+                guard.enemy_infantry_3.y = msg.position.infantry_3_y;
+                guard.enemy_infantry_4.x = msg.position.infantry_4_x;
+                guard.enemy_infantry_4.y = msg.position.infantry_4_y;
+                guard.enemy_aerial.x = msg.position.aerial_x;
+                guard.enemy_aerial.y = msg.position.aerial_y;
+                guard.enemy_sentry.x = msg.position.sentry_x;
+                guard.enemy_sentry.y = msg.position.sentry_y;
+                guard.sdr_blood = msg.blood;
+                guard.sdr_ammo = msg.ammo;
+                guard.sdr_state = msg.state;
+                guard.sdr_gain = msg.gain;
+                guard.sdr_jamming_key = msg.key;
             }
             continue;
         }
         // Laser
         if let Ok(msg) = serde_json::from_slice::<LaserMsg>(&bytes) {
-            if let Ok(mut s) = shared.lock() {
+            if let Ok(mut guard) = shared.lock() {
                 // laser data: if needed, add to SharedData
             }
             continue;
         }
         // Lidar
         if let Ok(msg) = serde_json::from_slice::<LidarMsg>(&bytes) {
-            if let Ok(mut s) = shared.lock() {
-                s.enemy_hero.x = msg.opponent_hero_x as i16;
-                s.enemy_hero.y = msg.opponent_hero_y as i16;
-                s.enemy_engineer.x = msg.opponent_engineer_x as i16;
-                s.enemy_engineer.y = msg.opponent_engineer_y as i16;
-                s.enemy_infantry_3.x = msg.opponent_infantry_3_x as i16;
-                s.enemy_infantry_3.y = msg.opponent_infantry_3_y as i16;
-                s.enemy_infantry_4.x = msg.opponent_infantry_4_x as i16;
-                s.enemy_infantry_4.y = msg.opponent_infantry_4_y as i16;
-                s.enemy_aerial.x = msg.opponent_aerial_x as i16;
-                s.enemy_aerial.y = msg.opponent_aerial_y as i16;
-                s.enemy_sentry.x = msg.opponent_sentry_x as i16;
-                s.enemy_sentry.y = msg.opponent_sentry_y as i16;
-                s.ally_hero.x = msg.ally_hero_x as i16;
-                s.ally_hero.y = msg.ally_hero_y as i16;
-                s.ally_engineer.x = msg.ally_engineer_x as i16;
-                s.ally_engineer.y = msg.ally_engineer_y as i16;
-                s.ally_infantry_3.x = msg.ally_infantry_3_x as i16;
-                s.ally_infantry_3.y = msg.ally_infantry_3_y as i16;
-                s.ally_infantry_4.x = msg.ally_infantry_4_x as i16;
-                s.ally_infantry_4.y = msg.ally_infantry_4_y as i16;
-                s.ally_aerial.x = msg.ally_aerial_x as i16;
-                s.ally_aerial.y = msg.ally_aerial_y as i16;
-                s.ally_sentry.x = msg.ally_sentry_x as i16;
-                s.ally_sentry.y = msg.ally_sentry_y as i16;
+            if let Ok(mut guard) = shared.lock() {
+                guard.enemy_hero.x = msg.opponent_hero_x as i16;
+                guard.enemy_hero.y = msg.opponent_hero_y as i16;
+                guard.enemy_engineer.x = msg.opponent_engineer_x as i16;
+                guard.enemy_engineer.y = msg.opponent_engineer_y as i16;
+                guard.enemy_infantry_3.x = msg.opponent_infantry_3_x as i16;
+                guard.enemy_infantry_3.y = msg.opponent_infantry_3_y as i16;
+                guard.enemy_infantry_4.x = msg.opponent_infantry_4_x as i16;
+                guard.enemy_infantry_4.y = msg.opponent_infantry_4_y as i16;
+                guard.enemy_aerial.x = msg.opponent_aerial_x as i16;
+                guard.enemy_aerial.y = msg.opponent_aerial_y as i16;
+                guard.enemy_sentry.x = msg.opponent_sentry_x as i16;
+                guard.enemy_sentry.y = msg.opponent_sentry_y as i16;
+                guard.ally_hero.x = msg.ally_hero_x as i16;
+                guard.ally_hero.y = msg.ally_hero_y as i16;
+                guard.ally_engineer.x = msg.ally_engineer_x as i16;
+                guard.ally_engineer.y = msg.ally_engineer_y as i16;
+                guard.ally_infantry_3.x = msg.ally_infantry_3_x as i16;
+                guard.ally_infantry_3.y = msg.ally_infantry_3_y as i16;
+                guard.ally_infantry_4.x = msg.ally_infantry_4_x as i16;
+                guard.ally_infantry_4.y = msg.ally_infantry_4_y as i16;
+                guard.ally_aerial.x = msg.ally_aerial_x as i16;
+                guard.ally_aerial.y = msg.ally_aerial_y as i16;
+                guard.ally_sentry.x = msg.ally_sentry_x as i16;
+                guard.ally_sentry.y = msg.ally_sentry_y as i16;
             }
             continue;
         }

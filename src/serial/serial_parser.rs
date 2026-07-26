@@ -1,11 +1,13 @@
 use crate::robot_interaction_id::DeviceId;
 use super::serial_crc;
 use crate::shared_data::{
-    self as data_format, CMD_ID_LENGTH, CRC16_LENGTH, DART_LAUNCH_CMD_ID, FRAME_HEADER_LENGTH,
-    FRAME_HEADER_SOF, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID, IDX_DART_LAUNCH, IDX_GAME_RESULT,
-    IDX_GAME_STATE, IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
-    IDX_ROBOT_INTERACTION, IDX_SITE_EVENT, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-    RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID, SITE_EVENT_CMD_ID,
+    CMD_ID_LENGTH, CRC16_LENGTH, DART_LAUNCH_CMD_ID, DartLaunchData, FRAME_HEADER_LENGTH,
+    FRAME_HEADER_SOF, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID, GameResultData, GameStateData,
+    IDX_DART_LAUNCH, IDX_GAME_RESULT, IDX_GAME_STATE, IDX_RADAR_AUTONOMOUS_DECISION_SYNC,
+    IDX_RADAR_MARK_PROCESS, IDX_ROBOT_INTERACTION, IDX_SITE_EVENT,
+    RadarAutonomousDecisionSyncData, RadarMarkProcessData, RobotInteractionData,
+    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID,
+    SerialFrameHeader, SITE_EVENT_CMD_ID, SiteEventData,
 };
 use crate::shared_data::SharedData;
 use deku::prelude::*;
@@ -14,7 +16,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 pub struct SerialParser {
-    frame_header: data_format::SerialFrameHeader,
+    frame_header: SerialFrameHeader,
     protocol_data: Arc<Mutex<SharedData>>,
     tx: Option<mpsc::Sender<usize>>,
 }
@@ -22,7 +24,7 @@ pub struct SerialParser {
 impl SerialParser {
     pub fn new(protocol_data_input: Arc<Mutex<SharedData>>) -> Self {
         SerialParser {
-            frame_header: data_format::SerialFrameHeader::default(),
+            frame_header: SerialFrameHeader::default(),
             protocol_data: protocol_data_input,
             tx: None,
         }
@@ -33,7 +35,7 @@ impl SerialParser {
         tx: mpsc::Sender<usize>,
     ) -> Self {
         SerialParser {
-            frame_header: data_format::SerialFrameHeader::default(),
+            frame_header: SerialFrameHeader::default(),
             protocol_data: protocol_data_input,
             tx: Some(tx),
         }
@@ -56,13 +58,13 @@ impl SerialParser {
                 index += 1;
                 continue;
             }
-            self.frame_header.frame_header_sof = read_buffer[index];
-            self.frame_header.frame_header_data_len =
+            self.frame_header.sof = read_buffer[index];
+            self.frame_header.data_len =
                 u16::from_le_bytes([read_buffer[index + 1], read_buffer[index + 2]]);
-            self.frame_header.frame_header_seq = read_buffer[index + 3];
-            self.frame_header.frame_header_crc8 = read_buffer[index + 4];
+            self.frame_header.seq = read_buffer[index + 3];
+            self.frame_header.crc8 = read_buffer[index + 4];
 
-            let data_len = self.frame_header.frame_header_data_len as usize;
+            let data_len = self.frame_header.data_len as usize;
             let package_start = index;
             let package_end = index + FRAME_HEADER_LENGTH + CMD_ID_LENGTH + data_len + CRC16_LENGTH;
             if package_end > read_buffer.len() {
@@ -71,7 +73,7 @@ impl SerialParser {
             if !serial_crc::verify_crc16(&read_buffer[package_start..package_end]) {
                 index += FRAME_HEADER_LENGTH
                     + CMD_ID_LENGTH
-                    + self.frame_header.frame_header_data_len as usize
+                    + self.frame_header.data_len as usize
                     + CRC16_LENGTH;
                 continue;
             }
@@ -82,7 +84,7 @@ impl SerialParser {
 
             match cmd_id {
                 GAME_STATE_CMD_ID => {
-                    if let Ok((_, v)) = data_format::GameStateData::from_bytes((data, 0)) {
+                    if let Ok((_, v)) = GameStateData::from_bytes((data, 0)) {
                         log::info!("GameState: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
                         lock.game_state = v;
@@ -91,7 +93,7 @@ impl SerialParser {
                     }
                 }
                 GAME_RESULT_CMD_ID => {
-                    if let Ok((_, v)) = data_format::GameResultData::from_bytes((data, 0)) {
+                    if let Ok((_, v)) = GameResultData::from_bytes((data, 0)) {
                         log::info!("GameResult: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
                         lock.game_result = v;
@@ -100,7 +102,7 @@ impl SerialParser {
                     }
                 }
                 SITE_EVENT_CMD_ID => {
-                    if let Ok((_, v)) = data_format::SiteEventData::from_bytes((data, 0)) {
+                    if let Ok((_, v)) = SiteEventData::from_bytes((data, 0)) {
                         log::info!("SiteEvent: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
                         lock.site_event = v;
@@ -109,7 +111,7 @@ impl SerialParser {
                     }
                 }
                 DART_LAUNCH_CMD_ID => {
-                    if let Ok((_, v)) = data_format::DartLaunchData::from_bytes((data, 0)) {
+                    if let Ok((_, v)) = DartLaunchData::from_bytes((data, 0)) {
                         log::info!("DartLaunch: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
                         lock.dart_launch = v;
@@ -118,7 +120,7 @@ impl SerialParser {
                     }
                 }
                 RADAR_MARK_PROCESS_CMD_ID => {
-                    if let Ok((_, v)) = data_format::RadarMarkProcessData::from_bytes((data, 0)) {
+                    if let Ok((_, v)) = RadarMarkProcessData::from_bytes((data, 0)) {
                         log::info!("RadarMarkProcess: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
                         lock.radar_mark_process = v;
@@ -128,11 +130,11 @@ impl SerialParser {
                 }
                 RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID => {
                     if let Ok((_, v)) =
-                        data_format::RadarAutonomousDecisionSyncData::from_bytes((data, 0))
+                        RadarAutonomousDecisionSyncData::from_bytes((data, 0))
                     {
                         log::info!("RadarAutonomousDecisionSync: {:?}", v);
                         let mut lock = self.protocol_data.lock().unwrap();
-                        lock.radar_decision_sync = v;
+                        lock.radar_autonomous_decision_sync = v;
                         if let Some(ref tx) = self.tx { tx.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok(); }
                         parsed_any = true;
                     }
@@ -147,7 +149,7 @@ impl SerialParser {
                             sub_cmd, sender, receiver, data.len() - 6
                         );
                         let mut lock = self.protocol_data.lock().unwrap();
-                        lock.robot_interaction = data_format::RobotInteractionData {
+                        lock.robot_interaction = RobotInteractionData {
                             subcontext_cmd_id: sub_cmd,
                             sender_id: sender,
                             receiver_id: receiver,

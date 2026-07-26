@@ -37,7 +37,7 @@ impl ZmqSubRuntime {
         let addrs = addrs.to_vec();
         let sub_socket =
             crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
-        let handle = crate::zmq::zmq::start_zmq_sub(sub_socket, shared);
+        let handle =             crate::zmq::zmq::zmq_start_sub(sub_socket, shared);
         Self { stop, handle: Mutex::new(Some(handle)) }
     }
 
@@ -70,7 +70,7 @@ impl ZmqPubRuntime {
         let (pub_tx, pub_rx) = std::sync::mpsc::channel();
         let pub_socket =
             crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
-        let handle = crate::zmq::zmq::start_zmq_pub(pub_socket, shared, pub_rx);
+        let handle =             crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx);
         Self { stop, handle: Mutex::new(Some(handle)), pub_tx }
     }
 

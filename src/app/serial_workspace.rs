@@ -6,10 +6,10 @@ use crate::theme;
 use crate::widgets::{SerialFrameLogLine, SerialLogKind, SerialPanel};
 
 impl RadarApp {
-    pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context, snap: &SharedData) {
+    pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context, snapshot: &SharedData) {
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "serial_inspector", SIDE_SERIAL, |app, ui| {
-            app.show_serial_sidebar(ui, snap);
+            app.show_serial_sidebar(ui, snapshot);
         });
         self.show_main_column(
             ctx,
@@ -35,7 +35,7 @@ impl RadarApp {
                     ui.set_max_size(body.size());
                     SerialPanel::new().show_monitor(
                         ui,
-                        snap,
+                        snapshot,
                         app.serial_open,
                         &app.serial_port_name,
                         app.serial_baud,
@@ -46,7 +46,7 @@ impl RadarApp {
         );
     }
 
-    pub(super) fn show_serial_sidebar(&mut self, ui: &mut egui::Ui, snap: &SharedData) {
+    pub(super) fn show_serial_sidebar(&mut self, ui: &mut egui::Ui, snapshot: &SharedData) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -202,7 +202,7 @@ impl RadarApp {
                 });
 
                 ui.add_space(12.0);
-                SerialPanel::new().show_minimap_sidebar(ui, &snap.minimap_receive);
+                SerialPanel::new().show_minimap_sidebar(ui, &snapshot.minimap_receive);
                 ui.add_space(12.0);
             });
     }
@@ -226,7 +226,7 @@ fn chrono_like_now() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let h = (secs / 3600) % 24;
-    let m = (secs / 60) % 60;
-    let s = secs % 60;
-    format!("{h:02}:{m:02}:{s:02}")
+    let minutes = (secs / 60) % 60;
+    let seconds = secs % 60;
+    format!("{h:02}:{minutes:02}:{seconds:02}")
 }

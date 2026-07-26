@@ -35,12 +35,12 @@ impl Serial {
 
     /// Read raw bytes from the serial port (max 1024 bytes per call).
     pub fn receive_data(&mut self) -> std::io::Result<Vec<u8>> {
-        let mut buf = vec![0u8; 2048];
+        let mut buffer = vec![0u8; 2048];
         loop {
-            match self.serial_port.read(&mut buf) {
+            match self.serial_port.read(&mut buffer) {
                 Ok(n) => {
-                    buf.truncate(n);
-                    return Ok(buf);
+                    buffer.truncate(n);
+                    return Ok(buffer);
                 }
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
@@ -69,7 +69,7 @@ impl Serial {
 /// Spawn a receiver thread that continuously reads from the serial port,
 /// parses incoming DJI frames, writes to the shared `SharedData`, and
 /// optionally notifies the ZMQ PUB channel on each parsed frame.
-pub fn start_receiver(
+pub fn serial_start_receiver(
     mut serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
     pub_tx: Option<mpsc::Sender<usize>>,
@@ -92,7 +92,7 @@ pub fn start_receiver(
 
 /// Spawn a transmitter thread that polls shared state every 10 ms,
 /// constructs DJI frames with `serial_package`, and sends them over the serial port.
-pub fn start_transmitter(
+pub fn serial_start_transmitter(
     serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
@@ -110,7 +110,7 @@ pub fn start_transmitter(
                 ),
                 5 => (
                     RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    data.radar_decision_sync.to_bytes(),
+                    data.radar_autonomous_decision_sync.to_bytes(),
                 ),
                 6 => {
                     let b = data.robot_interaction.to_bytes();

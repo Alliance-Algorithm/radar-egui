@@ -107,7 +107,7 @@ impl MinimapWidget {
         let center = world_rect.center();
         let scale = world_rect.width().min(world_rect.height()) * 0.43 / 3000.0;
 
-        let robots = robot_markers(info);
+        let robots = build_robot_markers(info);
         let mut screen_pts: Vec<(usize, Pos2, Color32, f32)> = Vec::with_capacity(robots.len());
 
         for (i, robot) in robots.iter().enumerate() {
@@ -235,7 +235,7 @@ pub struct RobotMarker {
     pub ammo: u16,
 }
 
-pub fn robot_markers(info: &SharedData) -> [RobotMarker; 6] {
+pub fn build_robot_markers(info: &SharedData) -> [RobotMarker; 6] {
     [
         RobotMarker {
             name: "英雄",

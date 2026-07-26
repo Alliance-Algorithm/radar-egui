@@ -2,7 +2,7 @@ use super::chrome::{status_chip, white_card};
 use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
 use crate::theme;
-use crate::widgets::{MinimapOptions, MinimapWidget, StatusPanels, robot_markers};
+use crate::widgets::{MinimapOptions, MinimapWidget, StatusPanels, build_robot_markers};
 use crate::shared_data::SharedData;
 
 impl RadarApp {
@@ -11,11 +11,9 @@ impl RadarApp {
         ctx: &egui::Context,
         live_snapshot: &SharedData,
     ) {
-        let radar_snapshot = Some(live_snapshot);
-
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "sdr_inspector", SIDE_SDR, |app, ui| {
-            app.show_sdr_sidebar(ui, radar_snapshot);
+            app.show_sdr_sidebar(ui, live_snapshot);
         });
         self.show_main_column(
             ctx,
@@ -59,7 +57,7 @@ impl RadarApp {
                     let map_rect = ui.available_rect_before_wrap();
                     MinimapWidget::new().show_with_state(
                         ui,
-                        radar_snapshot,
+                        Some(live_snapshot),
                         app.minimap_texture.as_ref(),
                         &mut app.minimap_pan,
                         &mut app.minimap_zoom,
@@ -88,7 +86,7 @@ impl RadarApp {
                         },
                     );
 
-                    let live_ok = radar_snapshot.is_some()
+                    let live_ok = true
                         && (app.sdr_demo || app.connection_status == ConnectionStatus::Connected);
                     let badge_w = 150.0;
                     let badge_pos =
@@ -122,7 +120,7 @@ impl RadarApp {
                 ui.allocate_ui_at_rect(dock_rect, |ui| {
                     ui.set_min_size(dock_rect.size());
                     ui.set_max_size(dock_rect.size());
-                    app.show_sdr_bottom_dock(ui, radar_snapshot);
+                    app.show_sdr_bottom_dock(ui, live_snapshot);
                 });
             },
         );
@@ -131,7 +129,7 @@ impl RadarApp {
     pub(super) fn show_sdr_sidebar(
         &mut self,
         ui: &mut egui::Ui,
-        radar_snapshot: Option<&SharedData>,
+        radar_snapshot: &SharedData,
     ) {
         white_card(ui, "连接", |ui| {
             status_chip(
@@ -217,25 +215,18 @@ impl RadarApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                StatusPanels::new().show(ui, radar_snapshot.map(|s| s));
+                StatusPanels::new().show(ui, Some(radar_snapshot));
             });
     }
 
     pub(super) fn show_sdr_bottom_dock(
         &mut self,
         ui: &mut egui::Ui,
-        radar_snapshot: Option<&SharedData>,
+        radar_snapshot: &SharedData,
     ) {
-        let Some(info) = radar_snapshot else {
-            ui.label(
-                egui::RichText::new("等待 SDR 数据…")
-                    .color(theme::text_faint())
-                    .size(13.0),
-            );
-            return;
-        };
+        let info = radar_snapshot;
 
-        let robots = robot_markers(info);
+        let robots = build_robot_markers(info);
         let sel = self.sdr_selected.min(robots.len().saturating_sub(1));
         let selected = &robots[sel];
 

@@ -47,20 +47,20 @@ pub const SDR_JAMMING_KEY_DATA_LEN: usize = 6;
 #[derive(Debug, Clone, Default, DekuRead, DekuWrite, Serialize, Deserialize)]
 #[deku(endian = "little")]
 pub struct SerialFrameHeader {
-    pub frame_header_sof: u8,
-    pub frame_header_data_len: u16,
-    pub frame_header_seq: u8,
-    pub frame_header_crc8: u8,
+    pub sof: u8,
+    pub data_len: u16,
+    pub seq: u8,
+    pub crc8: u8,
 }
 
 #[derive(Debug, Clone, Default, DekuRead, DekuWrite, Serialize, Deserialize)]
 pub struct SerialFrame {
     pub frame_header: SerialFrameHeader,
     pub cmd_id: u16,
-    #[deku(count = "frame_header.frame_header_data_len as usize")]
+    #[deku(count = "frame_header.data_len as usize")]
     pub data: Vec<u8>,
     #[deku(endian = "little")]
-    pub frame_crc16: u16,
+    pub crc16: u16,
 }
 
 // cmd_id = 0x0001
@@ -188,8 +188,8 @@ impl Default for RobotInteractionData {
     fn default() -> Self {
         Self {
             subcontext_cmd_id: 0,
-            sender_id: DeviceId::UnKnown,
-            receiver_id: DeviceId::UnKnown,
+            sender_id: DeviceId::Unknown,
+            receiver_id: DeviceId::Unknown,
             subcontext_data: Vec::new(),
         }
     }
@@ -447,11 +447,11 @@ pub struct SharedData {
     pub site_event: SiteEventData,
     pub dart_launch: DartLaunchData,
     pub radar_mark_process: RadarMarkProcessData,
-    pub radar_decision_sync: RadarAutonomousDecisionSyncData,
+    pub radar_autonomous_decision_sync: RadarAutonomousDecisionSyncData,
     pub robot_interaction: RobotInteractionData,
 
     pub radar_autonomous_decision: RadarAutonomousDecisionData,
     pub minimap_receive: MinimapReceiveRadarData,
-    pub radar_local_computation_data: RadarLocalComputationData,
+    pub radar_local_computation: RadarLocalComputationData,
 
 }

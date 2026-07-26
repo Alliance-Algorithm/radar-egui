@@ -146,10 +146,7 @@ impl Default for RadarApp {
             shared.clone(),
         );
 
-        let zmq_pub = ZmqPubRuntime::start(
-            "tcp://*:5557",
-            shared.clone(),
-        );
+        let zmq_pub = ZmqPubRuntime::start("tcp://*:5557", shared.clone());
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
         let video_runtime = VideoRuntime::new(video_writer);
@@ -229,7 +226,7 @@ impl RadarApp {
     }
 
     fn open_serial(&mut self) {
-        use crate::serial::serial::{start_receiver, start_transmitter, Serial};
+        use crate::serial::serial::{serial_start_receiver, serial_start_transmitter, Serial};
         use crate::serial::serialconfig::SerialConfig;
 
         if self.serial_open {
@@ -244,8 +241,9 @@ impl RadarApp {
             Ok(port) => match port.clone_serial_port() {
                 Ok(port_tx) => {
                     let shared = self.shared_reader.inner();
-                    let rx = start_receiver(port, shared.clone(), Some(self.zmq_pub.pub_tx.clone()));
-                    let tx = start_transmitter(port_tx, shared.clone());
+                    let rx =
+                        serial_start_receiver(port, shared.clone(), Some(self.zmq_pub.pub_tx.clone()));
+                    let tx = serial_start_transmitter(port_tx, shared.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
                     self.serial_open = true;
@@ -310,8 +308,8 @@ impl eframe::App for RadarApp {
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
         self.ensure_logo_texture(ctx);
-        let snap = self.shared_reader.snapshot();
-        self.update_connection_status(&snap);
+        let snapshot = self.shared_reader.snapshot();
+        self.update_connection_status(&snapshot);
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();
         if self.active_tab == ActiveTab::Radar {
@@ -319,10 +317,10 @@ impl eframe::App for RadarApp {
         }
 
         match self.active_tab {
-            ActiveTab::Sdr => self.show_sdr_workspace(ctx, &snap),
+            ActiveTab::Sdr => self.show_sdr_workspace(ctx, &snapshot),
             ActiveTab::Laser => self.show_laser_workspace(ctx),
             ActiveTab::Radar => self.show_radar_workspace(ctx),
-            ActiveTab::Serial => self.show_serial_workspace(ctx, &snap),
+            ActiveTab::Serial => self.show_serial_workspace(ctx, &snapshot),
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
