@@ -77,6 +77,14 @@
 - 新增 `docs/lidar-location-protocol.md`：LidarLocation ZMQ/JSON 协议文档
 - 更新 README：移除 radar_sync 引用，新增 LidarLocation 数据源
 
+## 2026-07-24
+
+### 文档对齐：Radar 进程 = alliance_radar_location_lidar（非 Unity）
+- 代码侧 `ScriptRunner::start_radar` 已启动 `../alliance_radar_location_lidar`（ROS2 `radar_bringup competition.launch.py`）
+- 文档移除 RADAR_APP / Unity 启动与职责描述
+- 更新 README、docs/data-flow.md 进程控制与数据流说明
+- 重写 `AGENTS.md`：去掉 TCP:2000 / tcp_client / protocol.rs，改为 ZMQ + ROS2 Radar + 当前模块/启动编排
+
 ## 待办
 - [ ] 测试 Rerun 集成
 - [ ] 添加噪声流接口 (127.0.0.1:3000)

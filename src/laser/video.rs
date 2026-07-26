@@ -201,10 +201,7 @@ fn open_shm() -> Result<ShmMapping, String> {
     })
 }
 
-pub async fn run_video_client(
-    writer: VideoFrameWriter,
-    mut shutdown: watch::Receiver<bool>,
-) {
+pub async fn run_video_client(writer: VideoFrameWriter, mut shutdown: watch::Receiver<bool>) {
     let mut backoff = Duration::from_millis(500);
 
     loop {

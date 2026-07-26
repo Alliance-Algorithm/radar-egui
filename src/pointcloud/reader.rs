@@ -62,7 +62,11 @@ fn open_shm() -> Result<ShmMapping, String> {
     let c_name = CString::new(SHM_NAME).map_err(|e| e.to_string())?;
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
     if fd < 0 {
-        return Err(format!("shm_open {}: {}", SHM_NAME, std::io::Error::last_os_error()));
+        return Err(format!(
+            "shm_open {}: {}",
+            SHM_NAME,
+            std::io::Error::last_os_error()
+        ));
     }
 
     let header_ptr = unsafe {
@@ -80,7 +84,9 @@ fn open_shm() -> Result<ShmMapping, String> {
         return Err(format!("mmap header: {}", std::io::Error::last_os_error()));
     }
 
-    let header = ShmHeader { ptr: header_ptr as *mut u8 };
+    let header = ShmHeader {
+        ptr: header_ptr as *mut u8,
+    };
 
     let magic = header.magic();
     if magic != SHM_MAGIC {
@@ -186,9 +192,7 @@ pub async fn run_pointcloud_client(
             if seq == last_seq {
                 // Only trigger stale remap for live streams (seq was changing before),
                 // not for truly static one-shot point clouds.
-                if first_frame_received
-                    && last_frame_update.elapsed() > STALE_FRAME_TIMEOUT
-                {
+                if first_frame_received && last_frame_update.elapsed() > STALE_FRAME_TIMEOUT {
                     log::warn!(
                         "[pcd] frame sequence stalled for {:?}, remapping",
                         STALE_FRAME_TIMEOUT

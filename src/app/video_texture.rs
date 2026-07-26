@@ -36,9 +36,8 @@ impl VideoTextureCache {
             if let Some(texture) = self.texture.as_mut() {
                 texture.set(image, egui::TextureOptions::LINEAR);
             } else {
-                self.texture = Some(
-                    ctx.load_texture("video_frame", image, egui::TextureOptions::LINEAR),
-                );
+                self.texture =
+                    Some(ctx.load_texture("video_frame", image, egui::TextureOptions::LINEAR));
             }
 
             self.frame_seq = Some(frame.seq);

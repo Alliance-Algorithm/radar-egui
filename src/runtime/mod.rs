@@ -7,9 +7,9 @@ use tokio::sync::watch;
 
 use crate::laser::video::{self, VideoFrameWriter};
 use crate::pointcloud::reader;
+use crate::serial::data_format::SerialData;
 use crate::state::{LaserObservationWriter, PointCloudFrameWriter};
 use crate::zmq::data_format::ZmqData;
-use crate::serial::data_format::SerialData;
 
 fn spawn_runtime_task<M, F>(make_future: M)
 where
@@ -37,16 +37,20 @@ impl ZmqSubRuntime {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let addrs = addrs.to_vec();
-        let sub_socket =
-            crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
+        let sub_socket = crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
         let handle = crate::zmq::zmq::start_zmq_sub(sub_socket, zmq, serial);
-        Self { stop, handle: Mutex::new(Some(handle)) }
+        Self {
+            stop,
+            handle: Mutex::new(Some(handle)),
+        }
     }
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Ok(mut h) = self.handle.lock() {
-            if let Some(handle) = h.take() { let _ = handle.join(); }
+            if let Some(handle) = h.take() {
+                let _ = handle.join();
+            }
         }
     }
 
@@ -69,16 +73,20 @@ impl ZmqPubRuntime {
         serial: Arc<Mutex<SerialData>>,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
-        let pub_socket =
-            crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
+        let pub_socket = crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
         let handle = crate::zmq::zmq::start_zmq_pub(pub_socket, zmq, serial);
-        Self { stop, handle: Mutex::new(Some(handle)) }
+        Self {
+            stop,
+            handle: Mutex::new(Some(handle)),
+        }
     }
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Ok(mut h) = self.handle.lock() {
-            if let Some(handle) = h.take() { let _ = handle.join(); }
+            if let Some(handle) = h.take() {
+                let _ = handle.join();
+            }
         }
     }
 }
@@ -94,11 +102,17 @@ pub struct VideoRuntime {
 impl VideoRuntime {
     pub fn new(writer: VideoFrameWriter) -> Self {
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        Self { shutdown_tx, started: false, writer }
+        Self {
+            shutdown_tx,
+            started: false,
+            writer,
+        }
     }
 
     pub fn ensure_started(&mut self) {
-        if self.started { return; }
+        if self.started {
+            return;
+        }
         self.started = true;
         let _ = self.shutdown_tx.send(true);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -121,7 +135,11 @@ pub struct PointCloudRuntime {
 impl PointCloudRuntime {
     pub fn new(writer: PointCloudFrameWriter) -> Self {
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        Self { shutdown_tx, started: false, writer }
+        Self {
+            shutdown_tx,
+            started: false,
+            writer,
+        }
     }
 
     pub fn is_started(&self) -> bool {
@@ -129,7 +147,9 @@ impl PointCloudRuntime {
     }
 
     pub fn ensure_started(&mut self) {
-        if self.started { return; }
+        if self.started {
+            return;
+        }
         self.started = true;
         let _ = self.shutdown_tx.send(true);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

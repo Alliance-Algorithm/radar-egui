@@ -53,11 +53,23 @@ impl RerunVisualizer {
         if let Some(rec) = self.ensure_connected() {
             let robots: &[(&str, [i16; 2])] = &[
                 ("hero", [_info.position.hero_x, _info.position.hero_y]),
-                ("engineer", [_info.position.engineer_x, _info.position.engineer_y]),
-                ("infantry1", [_info.position.infantry_3_x, _info.position.infantry_3_y]),
-                ("infantry2", [_info.position.infantry_4_x, _info.position.infantry_4_y]),
+                (
+                    "engineer",
+                    [_info.position.engineer_x, _info.position.engineer_y],
+                ),
+                (
+                    "infantry1",
+                    [_info.position.infantry_3_x, _info.position.infantry_3_y],
+                ),
+                (
+                    "infantry2",
+                    [_info.position.infantry_4_x, _info.position.infantry_4_y],
+                ),
                 ("drone", [_info.position.aerial_x, _info.position.aerial_y]),
-                ("sentinel", [_info.position.sentry_x, _info.position.sentry_y]),
+                (
+                    "sentinel",
+                    [_info.position.sentry_x, _info.position.sentry_y],
+                ),
             ];
 
             for (name, pos) in robots {

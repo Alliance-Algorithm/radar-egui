@@ -54,18 +54,10 @@ impl PointCloudFrame {
                 break;
             }
             let x = f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
-            let y = f32::from_le_bytes([
-                data[off + 4],
-                data[off + 5],
-                data[off + 6],
-                data[off + 7],
-            ]);
-            let z = f32::from_le_bytes([
-                data[off + 8],
-                data[off + 9],
-                data[off + 10],
-                data[off + 11],
-            ]);
+            let y =
+                f32::from_le_bytes([data[off + 4], data[off + 5], data[off + 6], data[off + 7]]);
+            let z =
+                f32::from_le_bytes([data[off + 8], data[off + 9], data[off + 10], data[off + 11]]);
             points.push([x, y, z]);
 
             if stride >= 16 && off + 16 <= data.len() {
@@ -80,13 +72,22 @@ impl PointCloudFrame {
 
             if stride >= 28 && off + 28 <= data.len() {
                 let nx = f32::from_le_bytes([
-                    data[off + 16], data[off + 17], data[off + 18], data[off + 19],
+                    data[off + 16],
+                    data[off + 17],
+                    data[off + 18],
+                    data[off + 19],
                 ]);
                 let ny = f32::from_le_bytes([
-                    data[off + 20], data[off + 21], data[off + 22], data[off + 23],
+                    data[off + 20],
+                    data[off + 21],
+                    data[off + 22],
+                    data[off + 23],
                 ]);
                 let nz = f32::from_le_bytes([
-                    data[off + 24], data[off + 25], data[off + 26], data[off + 27],
+                    data[off + 24],
+                    data[off + 25],
+                    data[off + 26],
+                    data[off + 27],
                 ]);
                 normals.push([nx, ny, nz]);
             } else {

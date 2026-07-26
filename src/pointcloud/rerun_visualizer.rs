@@ -19,11 +19,7 @@ impl PointCloudVisualizer {
 
 #[cfg(feature = "rerun")]
 impl PointCloudVisualizer {
-    pub fn log_point_cloud(
-        &self,
-        rec: &rr::RecordingStream,
-        frame: &PointCloudFrame,
-    ) {
+    pub fn log_point_cloud(&self, rec: &rr::RecordingStream, frame: &PointCloudFrame) {
         if frame.points.is_empty() {
             return;
         }
@@ -90,8 +86,8 @@ impl PointCloudVisualizer {
                 .map(|c| rr::Color::from_unmultiplied_rgba(c[0], c[1], c[2], c[3]))
                 .collect();
         }
-        let has_normals = normals.len() == positions.len()
-            && normals.iter().any(|n| *n != [0.0, 0.0, 1.0]);
+        let has_normals =
+            normals.len() == positions.len() && normals.iter().any(|n| *n != [0.0, 0.0, 1.0]);
         if has_normals {
             return normals
                 .iter()
@@ -108,7 +104,10 @@ impl PointCloudVisualizer {
                 .collect();
         }
         let z_min = positions.iter().map(|p| p[2]).fold(f32::INFINITY, f32::min);
-        let z_max = positions.iter().map(|p| p[2]).fold(f32::NEG_INFINITY, f32::max);
+        let z_max = positions
+            .iter()
+            .map(|p| p[2])
+            .fold(f32::NEG_INFINITY, f32::max);
         let z_range = (z_max - z_min).max(0.001);
         positions
             .iter()
