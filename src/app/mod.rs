@@ -244,7 +244,7 @@ impl RadarApp {
             Ok(port) => match port.clone_serial_port() {
                 Ok(port_tx) => {
                     let shared = self.shared_reader.inner();
-                    let rx = start_receiver(port, shared.clone());
+                    let rx = start_receiver(port, shared.clone(), Some(self.zmq_pub.pub_tx.clone()));
                     let tx = start_transmitter(port_tx, shared.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);

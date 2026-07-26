@@ -9,6 +9,7 @@ use super::serial_parser::SerialParser;
 use super::serialconfig::SerialConfig;
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -66,12 +67,17 @@ impl Serial {
 }
 
 /// Spawn a receiver thread that continuously reads from the serial port,
-/// parses incoming DJI frames, and writes to the shared `SerialData`.
+/// parses incoming DJI frames, writes to the shared `SharedData`, and
+/// optionally notifies the ZMQ PUB channel on each parsed frame.
 pub fn start_receiver(
     mut serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
+    pub_tx: Option<mpsc::Sender<usize>>,
 ) -> thread::JoinHandle<()> {
-    let mut serial_parser = SerialParser::new(serial_data.clone());
+    let mut serial_parser = match pub_tx {
+        Some(tx) => SerialParser::new_with_tx(serial_data.clone(), tx),
+        None => SerialParser::new(serial_data.clone()),
+    };
     let mut data: Vec<u8> = Vec::new();
     thread::spawn(move || loop {
         match serial.receive_data() {
@@ -84,9 +90,8 @@ pub fn start_receiver(
     })
 }
 
-/// Spawn a transmitter thread that polls `zmq_produced` flags from shared state,
+/// Spawn a transmitter thread that polls shared state every 10 ms,
 /// constructs DJI frames with `serial_package`, and sends them over the serial port.
-/// Only clears a flag when the entire send chain succeeds.
 pub fn start_transmitter(
     serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
