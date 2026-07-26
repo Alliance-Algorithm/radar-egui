@@ -2,9 +2,7 @@ use super::chrome::{status_chip, white_card};
 use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
 use crate::theme;
-use crate::widgets::{
-    MinimapWidget, StatusPanels,
-};
+use crate::widgets::{MinimapOptions, MinimapWidget, StatusPanels, robot_markers};
 use crate::shared_data::SharedData;
 
 impl RadarApp {
@@ -388,7 +386,7 @@ impl RadarApp {
                                     |ui| {
                                         ui.label(
                                             egui::RichText::new(if robot.ammo > 0 {
-                                                robot.sdr_ammo.to_string()
+                                                robot.ammo.to_string()
                                             } else {
                                                 "—".into()
                                             })
