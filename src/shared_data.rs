@@ -453,5 +453,4 @@ pub struct SharedData {
     pub radar_autonomous_decision: RadarAutonomousDecisionData,
     pub minimap_receive: MinimapReceiveRadarData,
     pub radar_local_computation: RadarLocalComputationData,
-
 }

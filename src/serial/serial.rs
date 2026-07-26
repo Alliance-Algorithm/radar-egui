@@ -1,12 +1,12 @@
+use super::serial_package::serial_package;
+use super::serial_parser::SerialParser;
+use super::serialconfig::SerialConfig;
+use crate::shared_data::SharedData;
 use crate::shared_data::{
     DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
     RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID,
     SITE_EVENT_CMD_ID,
 };
-use crate::shared_data::SharedData;
-use super::serial_package::serial_package;
-use super::serial_parser::SerialParser;
-use super::serialconfig::SerialConfig;
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
 use std::sync::mpsc;

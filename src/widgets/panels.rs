@@ -1,7 +1,7 @@
 use egui::{Color32, RichText, Vec2};
 
-use crate::theme;
 use crate::shared_data::SharedData;
+use crate::theme;
 
 pub struct StatusPanels;
 
@@ -20,7 +20,13 @@ impl StatusPanels {
             "血量总览",
             "主战单位与关键建筑生命值",
             |ui| {
-                self.blood_row(ui, "英雄", info.sdr_blood.hero_blood, 200, theme::HERO_COLOR);
+                self.blood_row(
+                    ui,
+                    "英雄",
+                    info.sdr_blood.hero_blood,
+                    200,
+                    theme::HERO_COLOR,
+                );
                 self.blood_row(
                     ui,
                     "工程",

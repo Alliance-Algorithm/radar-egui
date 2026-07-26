@@ -297,11 +297,7 @@ fn draw_phase_ring(ui: &Ui, rect: egui::Rect, pct: f32) {
     );
 }
 
-fn show_site_events(
-    ui: &mut Ui,
-    site: &SiteEventData,
-    dart: &crate::shared_data::DartLaunchData,
-) {
+fn show_site_events(ui: &mut Ui, site: &SiteEventData, dart: &crate::shared_data::DartLaunchData) {
     ui.horizontal_wrapped(|ui| {
         event_chip(ui, "补给站", site.supply_zone_status != 0);
         event_chip(
@@ -584,5 +580,3 @@ fn winner_label(winner: u8) -> String {
         n => format!("{n}"),
     }
 }
-
-

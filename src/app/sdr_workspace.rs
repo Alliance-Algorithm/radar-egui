@@ -1,16 +1,12 @@
 use super::chrome::{status_chip, white_card};
 use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
-use crate::theme;
-use crate::widgets::{MinimapOptions, MinimapWidget, StatusPanels, build_robot_markers};
 use crate::shared_data::SharedData;
+use crate::theme;
+use crate::widgets::{build_robot_markers, MinimapOptions, MinimapWidget, StatusPanels};
 
 impl RadarApp {
-    pub(super) fn show_sdr_workspace(
-        &mut self,
-        ctx: &egui::Context,
-        live_snapshot: &SharedData,
-    ) {
+    pub(super) fn show_sdr_workspace(&mut self, ctx: &egui::Context, live_snapshot: &SharedData) {
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "sdr_inspector", SIDE_SDR, |app, ui| {
             app.show_sdr_sidebar(ui, live_snapshot);
@@ -126,11 +122,7 @@ impl RadarApp {
         );
     }
 
-    pub(super) fn show_sdr_sidebar(
-        &mut self,
-        ui: &mut egui::Ui,
-        radar_snapshot: &SharedData,
-    ) {
+    pub(super) fn show_sdr_sidebar(&mut self, ui: &mut egui::Ui, radar_snapshot: &SharedData) {
         white_card(ui, "连接", |ui| {
             status_chip(
                 ui,
@@ -219,11 +211,7 @@ impl RadarApp {
             });
     }
 
-    pub(super) fn show_sdr_bottom_dock(
-        &mut self,
-        ui: &mut egui::Ui,
-        radar_snapshot: &SharedData,
-    ) {
+    pub(super) fn show_sdr_bottom_dock(&mut self, ui: &mut egui::Ui, radar_snapshot: &SharedData) {
         let info = radar_snapshot;
 
         let robots = build_robot_markers(info);

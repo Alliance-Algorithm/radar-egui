@@ -1,8 +1,8 @@
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
+use crate::shared_data::SharedData;
 use crate::theme;
 use crate::ui_layout::{inset_rect, letterbox_rect, MINIMAP_ASPECT, STAGE_PAD};
-use crate::shared_data::SharedData;
 
 #[derive(Clone, Copy)]
 pub struct MinimapOptions {
@@ -296,4 +296,3 @@ pub fn build_robot_markers(info: &SharedData) -> [RobotMarker; 6] {
         },
     ]
 }
-

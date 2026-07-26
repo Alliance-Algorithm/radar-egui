@@ -5,9 +5,9 @@ use std::thread;
 use zmq2;
 
 use crate::shared_data::{
-    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
-    SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
-    SdrJammingKeyData, SharedData,
+    SdrEnemyRobotBloodData, SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData,
+    SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData, SharedData,
+    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
@@ -35,18 +35,30 @@ struct LaserMsg {
 #[derive(Deserialize)]
 struct LidarMsg {
     cmd_id: u16,
-    opponent_hero_x: u16, opponent_hero_y: u16,
-    opponent_engineer_x: u16, opponent_engineer_y: u16,
-    opponent_infantry_3_x: u16, opponent_infantry_3_y: u16,
-    opponent_infantry_4_x: u16, opponent_infantry_4_y: u16,
-    opponent_aerial_x: u16, opponent_aerial_y: u16,
-    opponent_sentry_x: u16, opponent_sentry_y: u16,
-    ally_hero_x: u16, ally_hero_y: u16,
-    ally_engineer_x: u16, ally_engineer_y: u16,
-    ally_infantry_3_x: u16, ally_infantry_3_y: u16,
-    ally_infantry_4_x: u16, ally_infantry_4_y: u16,
-    ally_aerial_x: u16, ally_aerial_y: u16,
-    ally_sentry_x: u16, ally_sentry_y: u16,
+    opponent_hero_x: u16,
+    opponent_hero_y: u16,
+    opponent_engineer_x: u16,
+    opponent_engineer_y: u16,
+    opponent_infantry_3_x: u16,
+    opponent_infantry_3_y: u16,
+    opponent_infantry_4_x: u16,
+    opponent_infantry_4_y: u16,
+    opponent_aerial_x: u16,
+    opponent_aerial_y: u16,
+    opponent_sentry_x: u16,
+    opponent_sentry_y: u16,
+    ally_hero_x: u16,
+    ally_hero_y: u16,
+    ally_engineer_x: u16,
+    ally_engineer_y: u16,
+    ally_infantry_3_x: u16,
+    ally_infantry_3_y: u16,
+    ally_infantry_4_x: u16,
+    ally_infantry_4_y: u16,
+    ally_aerial_x: u16,
+    ally_aerial_y: u16,
+    ally_sentry_x: u16,
+    ally_sentry_y: u16,
 }
 
 // ── Public API ──
@@ -124,7 +136,9 @@ pub fn zmq_start_sub(
     shared: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        let Ok(bytes) = sub_socket.recv_bytes(0) else { continue };
+        let Ok(bytes) = sub_socket.recv_bytes(0) else {
+            continue;
+        };
         // SDR
         if let Ok(msg) = serde_json::from_slice::<SdrMsg>(&bytes) {
             if let Ok(mut guard) = shared.lock() {

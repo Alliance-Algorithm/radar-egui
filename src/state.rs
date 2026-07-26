@@ -22,7 +22,12 @@ impl Default for SharedReader {
 impl SharedReader {
     pub fn new_pair() -> (Self, SharedWriter) {
         let inner = Arc::new(Mutex::new(SharedData::default()));
-        (Self { inner: inner.clone() }, SharedWriter { inner })
+        (
+            Self {
+                inner: inner.clone(),
+            },
+            SharedWriter { inner },
+        )
     }
 
     pub fn snapshot(&self) -> SharedData {
@@ -59,14 +64,22 @@ impl Default for LaserObservationReader {
 impl LaserObservationReader {
     pub fn new_pair() -> (Self, LaserObservationWriter) {
         let inner = Arc::new(Mutex::new(LaserObservation::default()));
-        (Self { inner: inner.clone() }, LaserObservationWriter { inner })
+        (
+            Self {
+                inner: inner.clone(),
+            },
+            LaserObservationWriter { inner },
+        )
     }
 
     pub fn snapshot(&self) -> Option<LaserSnapshot> {
         self.inner.lock().ok().map(|state| {
             let observation = state.clone();
             let online = observation.is_online();
-            LaserSnapshot { observation, online }
+            LaserSnapshot {
+                observation,
+                online,
+            }
         })
     }
 }
@@ -106,7 +119,12 @@ impl Default for PointCloudFrameReader {
 impl PointCloudFrameReader {
     pub fn new_pair() -> (Self, PointCloudFrameWriter) {
         let inner = Arc::new(Mutex::new(None));
-        (Self { inner: inner.clone() }, PointCloudFrameWriter { inner })
+        (
+            Self {
+                inner: inner.clone(),
+            },
+            PointCloudFrameWriter { inner },
+        )
     }
 
     pub fn with_frame<R>(&self, read: impl FnOnce(Option<&PointCloudFrame>) -> R) -> Option<R> {

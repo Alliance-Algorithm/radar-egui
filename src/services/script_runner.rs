@@ -98,10 +98,7 @@ impl ScriptRunner {
             .stdin(Stdio::null())
             .spawn()?;
 
-        log::info!(
-            "Started Radar (side={side}, pid={})",
-            child.id()
-        );
+        log::info!("Started Radar (side={side}, pid={})", child.id());
         self.radar_child = Some(child);
         Ok(())
     }
