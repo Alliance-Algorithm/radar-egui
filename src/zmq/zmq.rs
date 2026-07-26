@@ -1,14 +1,56 @@
-use std::io::Result;
+use serde::Deserialize;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 use zmq2;
 
-use crate::serial::data_format::{SerialData, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS};
-use crate::zmq::data_format::{
-    ReceiveLaser, ReceiveLidarLocation, ReceiveSdr, TransmitGameState, TransmitRadarMarkProcess,
-    ZmqData, IDX_ZMQ_LASER, IDX_ZMQ_LIDAR, IDX_ZMQ_SDR, ZMQ_PUB_GAME_STATE, ZMQ_PUB_RADAR_MARK,
+use crate::shared_data::{
+    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
+    SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
+    SdrJammingKeyData, SharedData,
 };
+
+// ── Private ZMQ message types (JSON deserialization only) ──
+
+#[derive(Deserialize)]
+struct SdrMsg {
+    cmd_id: u16,
+    position: SdrEnemyRobotPositionData,
+    blood: SdrEnemyRobotBloodData,
+    ammo: SdrEnemyRobotRemainingAmmoData,
+    state: SdrEnemyRobotOverallStateData,
+    gain: SdrEnemyRobotGainData,
+    key: SdrJammingKeyData,
+}
+
+#[derive(Deserialize)]
+struct LaserMsg {
+    cmd_id: u16,
+    detected: bool,
+    center: [f32; 2],
+    brightness: f32,
+    contour: Vec<[f32; 2]>,
+}
+
+#[derive(Deserialize)]
+struct LidarMsg {
+    cmd_id: u16,
+    opponent_hero_x: u16, opponent_hero_y: u16,
+    opponent_engineer_x: u16, opponent_engineer_y: u16,
+    opponent_infantry_3_x: u16, opponent_infantry_3_y: u16,
+    opponent_infantry_4_x: u16, opponent_infantry_4_y: u16,
+    opponent_aerial_x: u16, opponent_aerial_y: u16,
+    opponent_sentry_x: u16, opponent_sentry_y: u16,
+    ally_hero_x: u16, ally_hero_y: u16,
+    ally_engineer_x: u16, ally_engineer_y: u16,
+    ally_infantry_3_x: u16, ally_infantry_3_y: u16,
+    ally_infantry_4_x: u16, ally_infantry_4_y: u16,
+    ally_aerial_x: u16, ally_aerial_y: u16,
+    ally_sentry_x: u16, ally_sentry_y: u16,
+}
+
+// ── Public API ──
+
 pub fn zmq_init_pub(thread_num: i32, bind_addr: &str) -> zmq2::Result<zmq2::Socket> {
     let context = zmq2::Context::new();
     context.set_io_threads(thread_num)?;
@@ -21,126 +63,127 @@ pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<z
     let context = zmq2::Context::new();
     context.set_io_threads(thread_num)?;
     let sub_socket = context.socket(zmq2::SUB)?;
-    sub_socket.set_rcvtimeo(100)?;
     for addr in connect_addrs.iter() {
         sub_socket.connect(addr)?;
     }
     Ok(sub_socket)
 }
+
 pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
     pub_socket.send(msg, 0)?;
     Ok(())
 }
-pub fn zmq_recv(sub_socket: &zmq2::Socket) -> zmq2::Result<Vec<u8>> {
-    sub_socket.recv_bytes(0)
-}
+
 pub fn start_zmq_pub(
     pub_socket: zmq2::Socket,
-    zmq_data: Arc<Mutex<ZmqData>>,
-    serial_data: Arc<Mutex<SerialData>>,
+    shared: Arc<Mutex<SharedData>>,
+    rx: mpsc::Receiver<usize>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        zmq_serial_update(&zmq_data, &serial_data);
-
-        let mut zmq_lock = zmq_data.lock().unwrap();
-        if let Some(ref data) = zmq_lock.game_state.take() {
-            if let Ok(msg) = serde_json::to_string(data) {
-                zmq_send(&pub_socket, &msg).ok();
+        let Ok(idx) = rx.recv() else { continue };
+        let lock = shared.lock().unwrap();
+        match idx {
+            IDX_GAME_STATE => {
+                let msg = serde_json::json!({
+                    "game_type": lock.game_state.game_type,
+                    "game_progress": lock.game_state.game_progress,
+                    "stage_remain_time": lock.game_state.stage_remain_time,
+                    "sync_timestamp": lock.game_state.sync_timestamp,
+                });
+                zmq_send(&pub_socket, &msg.to_string()).ok();
             }
-        }
-        if let Some(ref data) = zmq_lock.radar_mark.take() {
-            if let Ok(msg) = serde_json::to_string(data) {
-                zmq_send(&pub_socket, &msg).ok();
+            IDX_RADAR_MARK_PROCESS => {
+                let msg = serde_json::json!({
+                    "opponent_hero_vulnerable": lock.radar_mark_process.opponent_hero_vulnerable,
+                    "opponent_engineer_vulnerable": lock.radar_mark_process.opponent_engineer_vulnerable,
+                    "opponent_infantry_3_vulnerable": lock.radar_mark_process.opponent_infantry_3_vulnerable,
+                    "opponent_infantry_4_vulnerable": lock.radar_mark_process.opponent_infantry_4_vulnerable,
+                    "opponent_aerial_marked": lock.radar_mark_process.opponent_aerial_marked,
+                    "opponent_sentry_vulnerable": lock.radar_mark_process.opponent_sentry_vulnerable,
+                    "ally_hero_marked": lock.radar_mark_process.ally_hero_marked,
+                    "ally_engineer_marked": lock.radar_mark_process.ally_engineer_marked,
+                    "ally_infantry_3_marked": lock.radar_mark_process.ally_infantry_3_marked,
+                    "ally_infantry_4_marked": lock.radar_mark_process.ally_infantry_4_marked,
+                    "ally_aerial_marked": lock.radar_mark_process.ally_aerial_marked,
+                    "ally_sentry_marked": lock.radar_mark_process.ally_sentry_marked,
+                    "opponent_aerial_targeted": lock.radar_mark_process.opponent_aerial_targeted,
+                    "opponent_aerial_countered": lock.radar_mark_process.opponent_aerial_countered,
+                    "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
+                    "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
+                });
+                zmq_send(&pub_socket, &msg.to_string()).ok();
             }
+            _ => {}
         }
-        drop(zmq_lock);
-        thread::sleep(Duration::from_millis(10));
+        drop(lock);
     })
 }
+
 pub fn start_zmq_sub(
     sub_socket: zmq2::Socket,
-    zmq_data: Arc<Mutex<ZmqData>>,
-    serial_data: Arc<Mutex<SerialData>>,
+    shared: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        let bytes = match zmq_recv(&sub_socket) {
-            Ok(b) => b,
-            Err(_) => {
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-        };
+        let Ok(bytes) = sub_socket.recv_bytes(0) else { continue };
         // SDR
-        if let Ok(sdr) = serde_json::from_slice::<ReceiveSdr>(&bytes) {
-            if let Ok(mut z) = zmq_data.lock() {
-                z.sdr = Some(sdr);
-                z.zmq_produce[IDX_ZMQ_SDR] = 1;
+        if let Ok(msg) = serde_json::from_slice::<SdrMsg>(&bytes) {
+            if let Ok(mut s) = shared.lock() {
+                s.enemy_hero.x = msg.position.hero_x;
+                s.enemy_hero.y = msg.position.hero_y;
+                s.enemy_engineer.x = msg.position.engineer_x;
+                s.enemy_engineer.y = msg.position.engineer_y;
+                s.enemy_infantry_3.x = msg.position.infantry_3_x;
+                s.enemy_infantry_3.y = msg.position.infantry_3_y;
+                s.enemy_infantry_4.x = msg.position.infantry_4_x;
+                s.enemy_infantry_4.y = msg.position.infantry_4_y;
+                s.enemy_aerial.x = msg.position.aerial_x;
+                s.enemy_aerial.y = msg.position.aerial_y;
+                s.enemy_sentry.x = msg.position.sentry_x;
+                s.enemy_sentry.y = msg.position.sentry_y;
+                s.sdr_blood = msg.blood;
+                s.sdr_ammo = msg.ammo;
+                s.sdr_state = msg.state;
+                s.sdr_gain = msg.gain;
+                s.sdr_jamming_key = msg.key;
             }
             continue;
         }
         // Laser
-        if let Ok(laser) = serde_json::from_slice::<ReceiveLaser>(&bytes) {
-            if let Ok(mut z) = zmq_data.lock() {
-                z.laser = Some(laser);
-                z.zmq_produce[IDX_ZMQ_LASER] = 1;
+        if let Ok(msg) = serde_json::from_slice::<LaserMsg>(&bytes) {
+            if let Ok(mut s) = shared.lock() {
+                // laser data: if needed, add to SharedData
             }
             continue;
         }
         // Lidar
-        if let Ok(lidar) = serde_json::from_slice::<ReceiveLidarLocation>(&bytes) {
-            if let Ok(mut z) = zmq_data.lock() {
-                z.lidar = Some(lidar);
-                z.zmq_produce[IDX_ZMQ_LIDAR] = 1;
+        if let Ok(msg) = serde_json::from_slice::<LidarMsg>(&bytes) {
+            if let Ok(mut s) = shared.lock() {
+                s.enemy_hero.x = msg.opponent_hero_x as i16;
+                s.enemy_hero.y = msg.opponent_hero_y as i16;
+                s.enemy_engineer.x = msg.opponent_engineer_x as i16;
+                s.enemy_engineer.y = msg.opponent_engineer_y as i16;
+                s.enemy_infantry_3.x = msg.opponent_infantry_3_x as i16;
+                s.enemy_infantry_3.y = msg.opponent_infantry_3_y as i16;
+                s.enemy_infantry_4.x = msg.opponent_infantry_4_x as i16;
+                s.enemy_infantry_4.y = msg.opponent_infantry_4_y as i16;
+                s.enemy_aerial.x = msg.opponent_aerial_x as i16;
+                s.enemy_aerial.y = msg.opponent_aerial_y as i16;
+                s.enemy_sentry.x = msg.opponent_sentry_x as i16;
+                s.enemy_sentry.y = msg.opponent_sentry_y as i16;
+                s.ally_hero.x = msg.ally_hero_x as i16;
+                s.ally_hero.y = msg.ally_hero_y as i16;
+                s.ally_engineer.x = msg.ally_engineer_x as i16;
+                s.ally_engineer.y = msg.ally_engineer_y as i16;
+                s.ally_infantry_3.x = msg.ally_infantry_3_x as i16;
+                s.ally_infantry_3.y = msg.ally_infantry_3_y as i16;
+                s.ally_infantry_4.x = msg.ally_infantry_4_x as i16;
+                s.ally_infantry_4.y = msg.ally_infantry_4_y as i16;
+                s.ally_aerial.x = msg.ally_aerial_x as i16;
+                s.ally_aerial.y = msg.ally_aerial_y as i16;
+                s.ally_sentry.x = msg.ally_sentry_x as i16;
+                s.ally_sentry.y = msg.ally_sentry_y as i16;
             }
             continue;
         }
     })
-}
-/// Poll `serial_produced[idx]` flags and copy updated fields into `ZmqData` PUB slots.
-pub fn zmq_serial_update(zmq_data: &Arc<Mutex<ZmqData>>, serial_data: &Arc<Mutex<SerialData>>) {
-    let mut zmq_lock = zmq_data.lock().unwrap();
-    let mut serial_lock = serial_data.lock().unwrap();
-
-    if serial_lock.serial_produced[IDX_GAME_STATE] != 0 {
-        let src = &serial_lock.game_state_data;
-        zmq_lock.game_state = Some(TransmitGameState {
-            cmd_id: ZMQ_PUB_GAME_STATE,
-            game_type: src.game_type,
-            game_progress: src.game_progress,
-            stage_remain_time: src.stage_remain_time,
-            sync_timestamp: src.sync_timestamp,
-        });
-        serial_lock.serial_produced[IDX_GAME_STATE] = 0;
-    }
-
-    if serial_lock.serial_produced[IDX_RADAR_MARK_PROCESS] != 0 {
-        let src = &serial_lock.radar_mark_process_data;
-        zmq_lock.radar_mark = Some(TransmitRadarMarkProcess {
-            cmd_id: ZMQ_PUB_RADAR_MARK,
-            opponent_hero_vulnerable: src.opponent_hero_vulnerable,
-            opponent_engineer_vulnerable: src.opponent_engineer_vulnerable,
-            opponent_infantry_3_vulnerable: src.opponent_infantry_3_vulnerable,
-            opponent_infantry_4_vulnerable: src.opponent_infantry_4_vulnerable,
-            opponent_aerial_marked: src.opponent_aerial_marked,
-            opponent_sentry_vulnerable: src.opponent_sentry_vulnerable,
-            ally_hero_marked: src.ally_hero_marked,
-            ally_engineer_marked: src.ally_engineer_marked,
-            ally_infantry_3_marked: src.ally_infantry_3_marked,
-            ally_infantry_4_marked: src.ally_infantry_4_marked,
-            ally_aerial_marked: src.ally_aerial_marked,
-            ally_sentry_marked: src.ally_sentry_marked,
-            opponent_aerial_targeted: src.opponent_aerial_targeted,
-            opponent_aerial_countered: src.opponent_aerial_countered,
-            ally_aerial_targeted: src.ally_aerial_targeted,
-            ally_aerial_countered: src.ally_aerial_countered,
-        });
-        serial_lock.serial_produced[IDX_RADAR_MARK_PROCESS] = 0;
-    }
-}
-pub fn zmq_sdr_lidar_fusion(zmq_data: &Arc<Mutex<ZmqData>>) {
-    let zmq_lock = zmq_data.lock().unwrap();
-    if zmq_lock.zmq_produce[IDX_ZMQ_LIDAR] != 0 && zmq_lock.zmq_produce[IDX_ZMQ_SDR] != 0 {
-        let sdr_position = zmq_lock.sdr.clone().unwrap().position;
-        let lidar_position = zmq_lock.lidar.clone().unwrap();
-    }
 }

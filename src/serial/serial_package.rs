@@ -1,5 +1,5 @@
-use super::data_format::{SerialFrame, SerialFrameHeader};
 use super::serial_crc;
+use crate::shared_data::{SerialFrame, SerialFrameHeader};
 use deku::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
 static PACKET_SEQ: AtomicU8 = AtomicU8::new(0);

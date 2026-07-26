@@ -1,16 +1,15 @@
-use super::data_format::{
-    SerialData, DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
+use crate::shared_data::{
+    DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
     RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID,
     SITE_EVENT_CMD_ID,
 };
+use crate::shared_data::SharedData;
 use super::serial_package::serial_package;
 use super::serial_parser::SerialParser;
 use super::serialconfig::SerialConfig;
-use crate::zmq::data_format::ZmqData;
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -22,7 +21,7 @@ pub struct Serial {
 impl Serial {
     /// Open a serial port with the given config.
     pub fn new(config: SerialConfig) -> std::io::Result<Self> {
-        let mut port = SerialPort::open(config.port_name, |mut s: Settings| {
+        let port = SerialPort::open(config.port_name, |mut s: Settings| {
             s.set_raw();
             s.set_baud_rate(config.baud_rate)?;
             s.set_char_size(serial2::CharSize::Bits8);
@@ -70,8 +69,7 @@ impl Serial {
 /// parses incoming DJI frames, and writes to the shared `SerialData`.
 pub fn start_receiver(
     mut serial: Serial,
-    serial_data: Arc<Mutex<SerialData>>,
-    zmq_data: Arc<Mutex<ZmqData>>,
+    serial_data: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
     let mut serial_parser = SerialParser::new(serial_data.clone());
     let mut data: Vec<u8> = Vec::new();
@@ -91,30 +89,26 @@ pub fn start_receiver(
 /// Only clears a flag when the entire send chain succeeds.
 pub fn start_transmitter(
     serial: Serial,
-    serial_data: Arc<Mutex<SerialData>>,
-    zmq_data: Arc<Mutex<ZmqData>>,
+    serial_data: Arc<Mutex<SharedData>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
         let mut data = serial_data.lock().unwrap();
         for idx in 0..7 {
-            if data.zmq_produced[idx] == 0 {
-                continue;
-            }
             let (cmd_id, raw) = match idx {
-                0 => (GAME_STATE_CMD_ID, data.game_state_data.to_bytes()),
-                1 => (GAME_RESULT_CMD_ID, data.game_result_data.to_bytes()),
-                2 => (SITE_EVENT_CMD_ID, data.site_event_data.to_bytes()),
-                3 => (DART_LAUNCH_CMD_ID, data.dart_launch_data.to_bytes()),
+                0 => (GAME_STATE_CMD_ID, data.game_state.to_bytes()),
+                1 => (GAME_RESULT_CMD_ID, data.game_result.to_bytes()),
+                2 => (SITE_EVENT_CMD_ID, data.site_event.to_bytes()),
+                3 => (DART_LAUNCH_CMD_ID, data.dart_launch.to_bytes()),
                 4 => (
                     RADAR_MARK_PROCESS_CMD_ID,
-                    data.radar_mark_process_data.to_bytes(),
+                    data.radar_mark_process.to_bytes(),
                 ),
                 5 => (
                     RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    data.radar_autonomous_decision_sync_data.to_bytes(),
+                    data.radar_decision_sync.to_bytes(),
                 ),
                 6 => {
-                    let b = data.robot_interaction_data.to_bytes();
+                    let b = data.robot_interaction.to_bytes();
                     (ROBOT_INTERACTION_CMD_ID, Ok(b))
                 }
                 _ => continue,
@@ -123,7 +117,6 @@ pub fn start_transmitter(
                 let frame = serial_package(cmd_id, data_bytes);
                 if let Ok(frame_bytes) = frame.to_bytes() {
                     serial.send_data(&frame_bytes);
-                    data.zmq_produced[idx] = 0;
                 }
             }
         }
