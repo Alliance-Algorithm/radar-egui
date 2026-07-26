@@ -160,49 +160,6 @@ impl SerialPanel {
         });
     }
 
-    pub fn show_dirty_flags(&self, ui: &mut Ui, data: &SharedData) {
-        self.card(ui, "脏标志", "serial_produced / zmq_produced", |ui| {
-            egui::Grid::new("serial_dirty_meta")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new("serial_produced")
-                            .color(theme::text_faint())
-                            .size(12.0),
-                    );
-                    ui.label(
-                        RichText::new(bits_preview(&data.serial_produced))
-                            .color(theme::text())
-                            .size(12.0),
-                    );
-                    ui.end_row();
-                    ui.label(
-                        RichText::new("zmq_produced")
-                            .color(theme::text_faint())
-                            .size(12.0),
-                    );
-                    ui.label(
-                        RichText::new(bits_preview(&data.zmq_produced))
-                            .color(theme::text())
-                            .size(12.0),
-                    );
-                    ui.end_row();
-                    ui.label(
-                        RichText::new("last cmd")
-                            .color(theme::text_faint())
-                            .size(12.0),
-                    );
-                    ui.label(
-                        RichText::new(last_cmd_hint(&data.serial_produced))
-                            .color(theme::text())
-                            .size(12.0),
-                    );
-                    ui.end_row();
-                });
-        });
-    }
-
     fn card(&self, ui: &mut Ui, title: &str, subtitle: &str, add: impl FnOnce(&mut Ui)) {
         let avail = ui.available_size();
         egui::Frame::new()
@@ -628,23 +585,4 @@ fn winner_label(winner: u8) -> String {
     }
 }
 
-fn bits_preview(bits: &[u8; 15]) -> String {
-    let s: String = bits
-        .iter()
-        .take(8)
-        .map(|b| if *b != 0 { '1' } else { '0' })
-        .collect();
-    format!("{s}…")
-}
 
-fn last_cmd_hint(bits: &[u8; 15]) -> String {
-    const NAMES: [&str; 9] = [
-        "0x0001", "0x0002", "0x0101", "0x0105", "0x020C", "0x020E", "0x0301", "0x0121", "0x0305",
-    ];
-    for (i, name) in NAMES.iter().enumerate() {
-        if bits.get(i).copied().unwrap_or(0) != 0 {
-            return (*name).into();
-        }
-    }
-    "—".into()
-}
