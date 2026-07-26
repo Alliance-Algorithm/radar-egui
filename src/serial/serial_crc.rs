@@ -3,7 +3,7 @@
 // CRC16: poly=0x1021, init=0xFFFF
 
 const CRC8_INIT: u8 = 0xFF;
-const CRC8_TAB: [u8; 256] = [
+const CRC8_TABLE: [u8; 256] = [
     0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83, 0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
     0x9D, 0xC3, 0x21, 0x7F, 0xFC, 0xA2, 0x40, 0x1E, 0x5F, 0x01, 0xE3, 0xBD, 0x3E, 0x60, 0x82, 0xDC,
     0x23, 0x7D, 0x9F, 0xC1, 0x42, 0x1C, 0xFE, 0xA0, 0xE1, 0xBF, 0x5D, 0x03, 0x80, 0xDE, 0x3C, 0x62,
@@ -22,8 +22,8 @@ const CRC8_TAB: [u8; 256] = [
     0x74, 0x2A, 0xC8, 0x96, 0x15, 0x4B, 0xA9, 0xF7, 0xB6, 0xE8, 0x0A, 0x54, 0xD7, 0x89, 0x6B, 0x35,
 ];
 
-const CRC_INIT: u16 = 0xFFFF;
-const WCRC_TABLE: [u16; 256] = [
+const CRC16_INIT: u16 = 0xFFFF;
+const CRC16_TABLE: [u16; 256] = [
     0x0000, 0x1189, 0x2312, 0x329B, 0x4624, 0x57AD, 0x6536, 0x74BF, 0x8C48, 0x9DC1, 0xAF5A, 0xBED3,
     0xCA6C, 0xDBE5, 0xE97E, 0xF8F7, 0x1081, 0x0108, 0x3393, 0x221A, 0x56A5, 0x472C, 0x75B7, 0x643E,
     0x9CC9, 0x8D40, 0xBFDB, 0xAE52, 0xDAED, 0xCB64, 0xF9FF, 0xE876, 0x2102, 0x308B, 0x0210, 0x1399,
@@ -51,7 +51,7 @@ const WCRC_TABLE: [u16; 256] = [
 /// Get_CRC8_Check_Sum
 fn get_crc8(data: &[u8], mut crc: u8) -> u8 {
     for &b in data {
-        crc = CRC8_TAB[(crc ^ b) as usize];
+        crc = CRC8_TABLE[(crc ^ b) as usize];
     }
     crc
 }
@@ -77,7 +77,7 @@ pub fn append_crc8(msg: &mut [u8]) -> Result<u8, bool> {
 /// Get_CRC16_Check_Sum
 fn get_crc16(data: &[u8], mut crc: u16) -> u16 {
     for &b in data {
-        crc = (crc >> 8) ^ WCRC_TABLE[((crc ^ b as u16) & 0x00ff) as usize];
+        crc = (crc >> 8) ^ CRC16_TABLE[((crc ^ b as u16) & 0x00ff) as usize];
     }
     crc
 }
@@ -88,7 +88,7 @@ pub fn verify_crc16(msg: &[u8]) -> bool {
     if n <= 2 {
         return false;
     }
-    let expected = get_crc16(&msg[..n - 2], CRC_INIT);
+    let expected = get_crc16(&msg[..n - 2], CRC16_INIT);
     (expected & 0xff) as u8 == msg[n - 2] && ((expected >> 8) & 0xff) as u8 == msg[n - 1]
 }
 
@@ -96,7 +96,7 @@ pub fn verify_crc16(msg: &[u8]) -> bool {
 pub fn append_crc16(msg: &mut [u8]) -> Result<u16, bool> {
     let n = msg.len();
     if n > 2 {
-        let crc16 = get_crc16(&msg[..n - 2], CRC_INIT);
+        let crc16 = get_crc16(&msg[..n - 2], CRC16_INIT);
         msg[n - 2] = (crc16 & 0xff) as u8;
         msg[n - 1] = ((crc16 >> 8) & 0xff) as u8;
         Ok(crc16)

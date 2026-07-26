@@ -1,9 +1,9 @@
 //! 比赛组件进程管理模块
 //!
 //! 从 radar-egui 中 spawn 比赛所需的三个外部进程：
+//!   - ROS2 Radar       (alliance_radar_location_lidar: camera + lidar + fusion + bridge)
 //!   - laser_guidance  脚本 (competition / preview / stream / record)
 //!   - SDR 数据桥接    (alliance_radar_sdr/tcp/tcp_launch.py)
-//!   - Unity RADAR     (RADAR_APP/RADAR.x86_64)
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,11 @@ use std::process::{Child, Command, Stdio};
 const LASER_GUIDANCE_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
-const UNITY_BIN: &str = "../RADAR_APP/RADAR.x86_64";
+
+/// ROS2 radar launch 所在仓库根目录
+const RADAR_REPO: &str = "../alliance_radar_location_lidar";
+/// radar launch 的 ROS2 workspace
+const RADAR_WS: &str = "ros_ws";
 
 // ── LaserScript ──────────────────────────────────────────────────────────────
 
@@ -51,24 +55,24 @@ impl LaserScript {
 // ── ScriptRunner ─────────────────────────────────────────────────────────────
 
 pub struct ScriptRunner {
+    // ROS2 Radar
+    radar_child: Option<Child>,
+
     // Laser
     child: Option<Child>,
     active: Option<LaserScript>,
 
     // SDR bridge
     sdr_child: Option<Child>,
-
-    // Unity RADAR
-    unity_child: Option<Child>,
 }
 
 impl ScriptRunner {
     pub fn new() -> Self {
         Self {
+            radar_child: None,
             child: None,
             active: None,
             sdr_child: None,
-            unity_child: None,
         }
     }
 
@@ -110,6 +114,7 @@ impl ScriptRunner {
     pub fn is_radar_running(&self) -> bool {
         self.radar_child.is_some()
     }
+
     // ── Laser ────────────────────────────────────────────────────────────────
 
     pub fn start(&mut self, script: LaserScript, device: &str) -> io::Result<()> {
@@ -222,39 +227,10 @@ impl ScriptRunner {
         self.sdr_child.is_some()
     }
 
-    // ── Unity RADAR ──────────────────────────────────────────────────────────
-
-    pub fn start_unity(&mut self) -> io::Result<()> {
-        self.stop_unity();
-
-        let child = Command::new(UNITY_BIN)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .stdin(Stdio::null())
-            .spawn()?;
-
-        log::info!("Started Unity RADAR (pid={})", child.id());
-        self.unity_child = Some(child);
-        Ok(())
-    }
-
-    pub fn stop_unity(&mut self) {
-        if let Some(mut child) = self.unity_child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-            log::info!("Stopped Unity RADAR");
-        }
-    }
-
-    pub fn is_unity_running(&self) -> bool {
-        self.unity_child.is_some()
-    }
-
-    /// 停止全部进程
     pub fn stop_all(&mut self) {
+        self.stop_radar();
         self.stop();
         self.stop_sdr();
-        self.stop_unity();
     }
 }
 
@@ -355,7 +331,6 @@ mod tests {
         let runner = ScriptRunner::new();
         assert!(!runner.is_running());
         assert!(!runner.is_sdr_running());
-        assert!(!runner.is_unity_running());
         assert!(runner.active().is_none());
     }
 }

@@ -6,7 +6,7 @@ use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
 use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
 use crate::services::process_control::ProcessControl;
-use crate::state::{LaserObservationReader, PointCloudFrameReader, SerialReader, ZmqReader};
+use crate::state::{LaserObservationReader, PointCloudFrameReader, SharedReader};
 use crate::theme;
 
 mod assets;
@@ -84,7 +84,7 @@ pub struct RadarApp {
     logo_texture: Option<egui::TextureHandle>,
     logo_texture_failed: bool,
 
-    zmq_reader: ZmqReader,
+    shared_reader: SharedReader,
     connection_status: ConnectionStatus,
     last_update: Option<std::time::Instant>,
     zmq_sub: ZmqSubRuntime,
@@ -116,7 +116,6 @@ pub struct RadarApp {
     laser_stage_overlay: bool,
     laser_stage_demo: bool,
 
-    serial_reader: SerialReader,
     serial_port_name: String,
     serial_baud: u32,
     serial_timeout_ms: u32,
@@ -138,21 +137,16 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        let (zmq_reader, _zmq_writer) = ZmqReader::new_pair();
-        let (serial_reader, serial_writer) = SerialReader::new_pair();
+        let (shared_reader, _shared_writer) = SharedReader::new_pair();
+        let shared = shared_reader.inner();
         let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
 
         let zmq_sub = ZmqSubRuntime::start(
             &["tcp://127.0.0.1:5555".into(), "tcp://127.0.0.1:5556".into()],
-            zmq_reader.inner().clone(),
-            serial_reader.inner().clone(),
+            shared.clone(),
         );
 
-        let zmq_pub = ZmqPubRuntime::start(
-            "tcp://*:5557",
-            zmq_reader.inner().clone(),
-            serial_writer.inner(),
-        );
+        let zmq_pub = ZmqPubRuntime::start("tcp://*:5557", shared.clone());
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
         let video_runtime = VideoRuntime::new(video_writer);
@@ -174,7 +168,7 @@ impl Default for RadarApp {
             sdr_demo: false,
             logo_texture: None,
             logo_texture_failed: false,
-            zmq_reader,
+            shared_reader,
             connection_status: ConnectionStatus::Disconnected,
             last_update: None,
             zmq_sub,
@@ -201,7 +195,6 @@ impl Default for RadarApp {
             record_on_start: false,
             laser_stage_overlay: true,
             laser_stage_demo: false,
-            serial_reader,
             serial_port_name: "/dev/ttyUSB0".to_string(),
             serial_baud: 115_200,
             serial_timeout_ms: 50,
@@ -233,7 +226,7 @@ impl RadarApp {
     }
 
     fn open_serial(&mut self) {
-        use crate::serial::serial::{start_receiver, start_transmitter, Serial};
+        use crate::serial::serial::{serial_start_receiver, serial_start_transmitter, Serial};
         use crate::serial::serialconfig::SerialConfig;
 
         if self.serial_open {
@@ -247,13 +240,13 @@ impl RadarApp {
         match Serial::new(config) {
             Ok(port) => match port.clone_serial_port() {
                 Ok(port_tx) => {
-                    let rx =
-                        start_receiver(port, self.serial_reader.inner(), self.zmq_reader.inner());
-                    let tx = start_transmitter(
-                        port_tx,
-                        self.serial_reader.inner(),
-                        self.zmq_reader.inner(),
+                    let shared = self.shared_reader.inner();
+                    let rx = serial_start_receiver(
+                        port,
+                        shared.clone(),
+                        Some(self.zmq_pub.pub_tx.clone()),
                     );
+                    let tx = serial_start_transmitter(port_tx, shared.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
                     self.serial_open = true;
@@ -318,8 +311,8 @@ impl eframe::App for RadarApp {
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
         self.ensure_logo_texture(ctx);
-        let radar_snapshot = self.zmq_reader.snapshot();
-        self.update_connection_status(radar_snapshot.as_ref());
+        let snapshot = self.shared_reader.snapshot();
+        self.update_connection_status(&snapshot);
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();
         if self.active_tab == ActiveTab::Radar {
@@ -327,10 +320,10 @@ impl eframe::App for RadarApp {
         }
 
         match self.active_tab {
-            ActiveTab::Sdr => self.show_sdr_workspace(ctx, radar_snapshot.as_ref()),
+            ActiveTab::Sdr => self.show_sdr_workspace(ctx, &snapshot),
             ActiveTab::Laser => self.show_laser_workspace(ctx),
             ActiveTab::Radar => self.show_radar_workspace(ctx),
-            ActiveTab::Serial => self.show_serial_workspace(ctx),
+            ActiveTab::Serial => self.show_serial_workspace(ctx, &snapshot),
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(100));

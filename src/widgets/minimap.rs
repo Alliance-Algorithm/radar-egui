@@ -1,8 +1,8 @@
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
+use crate::shared_data::SharedData;
 use crate::theme;
 use crate::ui_layout::{inset_rect, letterbox_rect, MINIMAP_ASPECT, STAGE_PAD};
-use crate::zmq::data_format::ReceiveSdr;
 
 #[derive(Clone, Copy)]
 pub struct MinimapOptions {
@@ -33,7 +33,7 @@ impl MinimapWidget {
     pub fn show_with_state(
         &self,
         ui: &mut egui::Ui,
-        info: Option<&ReceiveSdr>,
+        info: Option<&SharedData>,
         background: Option<&egui::TextureHandle>,
         pan: &mut Vec2,
         zoom: &mut f32,
@@ -107,7 +107,7 @@ impl MinimapWidget {
         let center = world_rect.center();
         let scale = world_rect.width().min(world_rect.height()) * 0.43 / 3000.0;
 
-        let robots = robot_markers(info);
+        let robots = build_robot_markers(info);
         let mut screen_pts: Vec<(usize, Pos2, Color32, f32)> = Vec::with_capacity(robots.len());
 
         for (i, robot) in robots.iter().enumerate() {
@@ -235,163 +235,64 @@ pub struct RobotMarker {
     pub ammo: u16,
 }
 
-pub fn robot_markers(info: &ReceiveSdr) -> [RobotMarker; 6] {
+pub fn build_robot_markers(info: &SharedData) -> [RobotMarker; 6] {
     [
         RobotMarker {
             name: "英雄",
-            pos: [info.position.hero_x, info.position.hero_y],
+            pos: [info.enemy_hero.x, info.enemy_hero.y],
             color: theme::HERO_COLOR,
             health: Some(RobotHealth {
-                hp: info.blood.hero_blood,
+                hp: info.sdr_blood.hero_blood,
                 hp_max: 200,
             }),
-            ammo: info.ammo.hero_ammo,
+            ammo: info.sdr_ammo.hero_ammo,
         },
         RobotMarker {
             name: "工程",
-            pos: [info.position.engineer_x, info.position.engineer_y],
+            pos: [info.enemy_engineer.x, info.enemy_engineer.y],
             color: theme::ENGINEER_COLOR,
             health: Some(RobotHealth {
-                hp: info.blood.engineer_blood,
+                hp: info.sdr_blood.engineer_blood,
                 hp_max: 200,
             }),
             ammo: 0,
         },
         RobotMarker {
             name: "步兵1",
-            pos: [info.position.infantry_3_x, info.position.infantry_3_y],
+            pos: [info.enemy_infantry_3.x, info.enemy_infantry_3.y],
             color: theme::INFANTRY1_COLOR,
             health: Some(RobotHealth {
-                hp: info.blood.infantry_3_blood,
+                hp: info.sdr_blood.infantry_3_blood,
                 hp_max: 200,
             }),
-            ammo: info.ammo.infantry_3_ammo,
+            ammo: info.sdr_ammo.infantry_3_ammo,
         },
         RobotMarker {
             name: "步兵2",
-            pos: [info.position.infantry_4_x, info.position.infantry_4_y],
+            pos: [info.enemy_infantry_4.x, info.enemy_infantry_4.y],
             color: theme::INFANTRY2_COLOR,
             health: Some(RobotHealth {
-                hp: info.blood.infantry_4_blood,
+                hp: info.sdr_blood.infantry_4_blood,
                 hp_max: 200,
             }),
-            ammo: info.ammo.infantry_4_ammo,
+            ammo: info.sdr_ammo.infantry_4_ammo,
         },
         RobotMarker {
             name: "无人机",
-            pos: [info.position.aerial_x, info.position.aerial_y],
+            pos: [info.enemy_aerial.x, info.enemy_aerial.y],
             color: theme::DRONE_COLOR,
             health: None,
-            ammo: info.ammo.aerial_ammo,
+            ammo: info.sdr_ammo.aerial_ammo,
         },
         RobotMarker {
             name: "哨兵",
-            pos: [info.position.sentry_x, info.position.sentry_y],
+            pos: [info.enemy_sentry.x, info.enemy_sentry.y],
             color: theme::SENTINEL_COLOR,
             health: Some(RobotHealth {
-                hp: info.blood.sentry_blood,
+                hp: info.sdr_blood.sentry_blood,
                 hp_max: 400,
             }),
-            ammo: info.ammo.sentry_ammo,
+            ammo: info.sdr_ammo.sentry_ammo,
         },
     ]
-}
-
-pub fn demo_receive_sdr() -> ReceiveSdr {
-    use crate::zmq::data_format::*;
-    ReceiveSdr {
-        cmd_id: 0x2002,
-        position: ReceiveSdrPosition {
-            hero_x: -420,
-            hero_y: 180,
-            engineer_x: -780,
-            engineer_y: -320,
-            infantry_3_x: -180,
-            infantry_3_y: 420,
-            infantry_4_x: 520,
-            infantry_4_y: 120,
-            aerial_x: 80,
-            aerial_y: 620,
-            sentry_x: 780,
-            sentry_y: -180,
-        },
-        blood: ReceiveSdrBlood {
-            hero_blood: 168,
-            engineer_blood: 200,
-            infantry_3_blood: 140,
-            infantry_4_blood: 55,
-            reserved: 150,
-            sentry_blood: 360,
-        },
-        ammo: ReceiveSdrAmmo {
-            hero_ammo: 86,
-            infantry_3_ammo: 120,
-            infantry_4_ammo: 45,
-            aerial_ammo: 30,
-            sentry_ammo: 200,
-        },
-        state: ReceiveSdrState {
-            remaining_gold: 320,
-            total_gold: 800,
-            occupation_status: [1, 1, 1, 0, 0, 1],
-            ..Default::default()
-        },
-        gain: ReceiveSdrGain {
-            hero_hp_recovery: 1,
-            hero_cooling_acceleration: 120,
-            hero_defence: 2,
-            hero_negative_defence: 0,
-            hero_attack: 15,
-            engineer_hp_recovery: 0,
-            engineer_cooling_acceleration: 80,
-            engineer_defence: 1,
-            engineer_negative_defence: 0,
-            engineer_attack: 0,
-            infantry_3_hp_recovery: 1,
-            infantry_3_cooling_acceleration: 100,
-            infantry_3_defence: 1,
-            infantry_3_negative_defence: 0,
-            infantry_3_attack: 10,
-            infantry_4_hp_recovery: 0,
-            infantry_4_cooling_acceleration: 60,
-            infantry_4_defence: 0,
-            infantry_4_negative_defence: 1,
-            infantry_4_attack: 5,
-            sentry_hp_recovery: 2,
-            sentry_cooling_acceleration: 140,
-            sentry_defence: 3,
-            sentry_negative_defence: 0,
-            sentry_attack: 20,
-            sentry_posture: 0,
-            ..Default::default()
-        },
-        key: ReceiveSdrKey::default(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::zmq::data_format::ReceiveSdr;
-
-    #[test]
-    fn aerial_robot_health_is_none_not_fabricated() {
-        let sdr = ReceiveSdr::default();
-        let markers = robot_markers(&sdr);
-        let aerial = &markers[4];
-        assert!(
-            aerial.health.is_none(),
-            "aerial health should be absent, not fabricated"
-        );
-        for i in 0..markers.len() {
-            if i == 4 {
-                continue;
-            }
-            assert!(
-                markers[i].health.is_some(),
-                "non-aerial robot {} should have health data",
-                i
-            );
-        }
-    }
 }

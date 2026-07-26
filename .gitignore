@@ -11,4 +11,5 @@ build/
 .omo/
 *.pdf
 LearnLog.md
-.mimocode/
+.mimocode/serial_dump.log
+serial_dump.log

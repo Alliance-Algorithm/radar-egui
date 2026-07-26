@@ -1,32 +1,15 @@
 use super::chrome::{status_chip, white_card};
 use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
+use crate::shared_data::SharedData;
 use crate::theme;
-use crate::widgets::{
-    demo_receive_sdr, robot_markers, MinimapOptions, MinimapWidget, StatusPanels,
-};
-use crate::zmq::data_format::ReceiveSdr;
+use crate::widgets::{build_robot_markers, MinimapOptions, MinimapWidget, StatusPanels};
 
 impl RadarApp {
-    pub(super) fn show_sdr_workspace(
-        &mut self,
-        ctx: &egui::Context,
-        live_snapshot: Option<&ReceiveSdr>,
-    ) {
-        let demo = if self.sdr_demo {
-            Some(demo_receive_sdr())
-        } else {
-            None
-        };
-        let radar_snapshot = if self.sdr_demo {
-            demo.as_ref()
-        } else {
-            live_snapshot
-        };
-
+    pub(super) fn show_sdr_workspace(&mut self, ctx: &egui::Context, live_snapshot: &SharedData) {
         self.show_left_rail(ctx);
         self.show_right_inspector(ctx, "sdr_inspector", SIDE_SDR, |app, ui| {
-            app.show_sdr_sidebar(ui, radar_snapshot);
+            app.show_sdr_sidebar(ui, live_snapshot);
         });
         self.show_main_column(
             ctx,
@@ -70,7 +53,7 @@ impl RadarApp {
                     let map_rect = ui.available_rect_before_wrap();
                     MinimapWidget::new().show_with_state(
                         ui,
-                        radar_snapshot,
+                        Some(live_snapshot),
                         app.minimap_texture.as_ref(),
                         &mut app.minimap_pan,
                         &mut app.minimap_zoom,
@@ -99,7 +82,7 @@ impl RadarApp {
                         },
                     );
 
-                    let live_ok = radar_snapshot.is_some()
+                    let live_ok = true
                         && (app.sdr_demo || app.connection_status == ConnectionStatus::Connected);
                     let badge_w = 150.0;
                     let badge_pos =
@@ -133,17 +116,13 @@ impl RadarApp {
                 ui.allocate_ui_at_rect(dock_rect, |ui| {
                     ui.set_min_size(dock_rect.size());
                     ui.set_max_size(dock_rect.size());
-                    app.show_sdr_bottom_dock(ui, radar_snapshot);
+                    app.show_sdr_bottom_dock(ui, live_snapshot);
                 });
             },
         );
     }
 
-    pub(super) fn show_sdr_sidebar(
-        &mut self,
-        ui: &mut egui::Ui,
-        radar_snapshot: Option<&ReceiveSdr>,
-    ) {
+    pub(super) fn show_sdr_sidebar(&mut self, ui: &mut egui::Ui, radar_snapshot: &SharedData) {
         white_card(ui, "连接", |ui| {
             status_chip(
                 ui,
@@ -228,25 +207,14 @@ impl RadarApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                StatusPanels::new().show(ui, radar_snapshot.map(|s| s));
+                StatusPanels::new().show(ui, Some(radar_snapshot));
             });
     }
 
-    pub(super) fn show_sdr_bottom_dock(
-        &mut self,
-        ui: &mut egui::Ui,
-        radar_snapshot: Option<&ReceiveSdr>,
-    ) {
-        let Some(info) = radar_snapshot else {
-            ui.label(
-                egui::RichText::new("等待 SDR 数据…")
-                    .color(theme::text_faint())
-                    .size(13.0),
-            );
-            return;
-        };
+    pub(super) fn show_sdr_bottom_dock(&mut self, ui: &mut egui::Ui, radar_snapshot: &SharedData) {
+        let info = radar_snapshot;
 
-        let robots = robot_markers(info);
+        let robots = build_robot_markers(info);
         let sel = self.sdr_selected.min(robots.len().saturating_sub(1));
         let selected = &robots[sel];
 
@@ -428,52 +396,24 @@ impl RadarApp {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(info.state.remaining_gold.to_string())
+                        egui::RichText::new(info.sdr_state.remaining_gold.to_string())
                             .color(theme::text())
                             .size(28.0),
                     );
                     ui.label(
-                        egui::RichText::new(format!("/ {}", info.state.total_gold))
+                        egui::RichText::new(format!("/ {}", info.sdr_state.total_gold))
                             .color(theme::text_muted())
                             .size(16.0),
                     );
                 });
-                let ratio = if info.state.total_gold > 0 {
-                    info.state.remaining_gold as f32 / info.state.total_gold as f32
+                let ratio = if info.sdr_state.total_gold > 0 {
+                    info.sdr_state.remaining_gold as f32 / info.sdr_state.total_gold as f32
                 } else {
                     0.0
                 };
                 hp_bar(ui, ratio, theme::BLUE);
                 ui.add_space(10.0);
-                ui.horizontal_wrapped(|ui| {
-                    let labels = ["A", "B", "C", "D", "E", "F"];
-                    for (i, label) in labels.iter().enumerate() {
-                        let active = info.state.occupation_status[i] != 0;
-                        let fill = if active {
-                            theme::success_bg()
-                        } else {
-                            theme::card_bg_muted()
-                        };
-                        let stroke = if active {
-                            theme::GREEN
-                        } else {
-                            theme::border()
-                        };
-                        let text = if active {
-                            theme::GREEN
-                        } else {
-                            theme::text_faint()
-                        };
-                        egui::Frame::new()
-                            .fill(fill)
-                            .stroke(egui::Stroke::new(1.0, stroke))
-                            .corner_radius(egui::CornerRadius::same(255))
-                            .inner_margin(egui::Margin::symmetric(12, 7))
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new(*label).color(text).size(14.0));
-                            });
-                    }
-                });
+                ui.label("（无有效数据）");
             });
         });
     }

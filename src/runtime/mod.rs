@@ -7,9 +7,8 @@ use tokio::sync::watch;
 
 use crate::laser::video::{self, VideoFrameWriter};
 use crate::pointcloud::reader;
-use crate::serial::data_format::SerialData;
+use crate::shared_data::SharedData;
 use crate::state::{LaserObservationWriter, PointCloudFrameWriter};
-use crate::zmq::data_format::ZmqData;
 
 fn spawn_runtime_task<M, F>(make_future: M)
 where
@@ -30,15 +29,11 @@ pub struct ZmqSubRuntime {
 }
 
 impl ZmqSubRuntime {
-    pub fn start(
-        addrs: &[String],
-        zmq: Arc<Mutex<ZmqData>>,
-        serial: Arc<Mutex<SerialData>>,
-    ) -> Self {
+    pub fn start(addrs: &[String], shared: Arc<Mutex<SharedData>>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let addrs = addrs.to_vec();
         let sub_socket = crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
-        let handle = crate::zmq::zmq::start_zmq_sub(sub_socket, zmq, serial);
+        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared);
         Self {
             stop,
             handle: Mutex::new(Some(handle)),
@@ -64,20 +59,19 @@ impl ZmqSubRuntime {
 pub struct ZmqPubRuntime {
     stop: Arc<AtomicBool>,
     handle: Mutex<Option<JoinHandle<()>>>,
+    pub pub_tx: std::sync::mpsc::Sender<usize>,
 }
 
 impl ZmqPubRuntime {
-    pub fn start(
-        bind_addr: &str,
-        zmq: Arc<Mutex<ZmqData>>,
-        serial: Arc<Mutex<SerialData>>,
-    ) -> Self {
+    pub fn start(bind_addr: &str, shared: Arc<Mutex<SharedData>>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let (pub_tx, pub_rx) = std::sync::mpsc::channel();
         let pub_socket = crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
-        let handle = crate::zmq::zmq::start_zmq_pub(pub_socket, zmq, serial);
+        let handle = crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx);
         Self {
             stop,
             handle: Mutex::new(Some(handle)),
+            pub_tx,
         }
     }
 
