@@ -3,8 +3,6 @@ use std::sync::{Arc, Mutex};
 use crate::laser::protocol::LaserObservation;
 use crate::shared_data::SharedData;
 
-// ── Shared data handle (single source of truth) ──
-
 #[derive(Clone)]
 pub struct SharedReader {
     inner: Arc<Mutex<SharedData>>,
@@ -41,8 +39,6 @@ impl SharedWriter {
         self.inner.clone()
     }
 }
-
-// ── Laser observation ──
 
 #[derive(Clone)]
 pub struct LaserObservationReader {
@@ -83,6 +79,7 @@ impl LaserObservationWriter {
     }
 }
 
+#[derive(Clone)]
 pub struct LaserSnapshot {
     pub observation: LaserObservation,
     pub online: bool,
@@ -109,10 +106,7 @@ impl Default for PointCloudFrameReader {
 impl PointCloudFrameReader {
     pub fn new_pair() -> (Self, PointCloudFrameWriter) {
         let inner = Arc::new(Mutex::new(None));
-        (
-            Self { inner: inner.clone() },
-            PointCloudFrameWriter { inner },
-        )
+        (Self { inner: inner.clone() }, PointCloudFrameWriter { inner })
     }
 
     pub fn with_frame<R>(&self, read: impl FnOnce(Option<&PointCloudFrame>) -> R) -> Option<R> {
