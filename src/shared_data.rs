@@ -454,7 +454,4 @@ pub struct SharedData {
     pub minimap_receive: MinimapReceiveRadarData,
     pub radar_local_computation_data: RadarLocalComputationData,
 
-    // ── Transmitter flags (temporary, to be replaced with channel) ──
-    pub serial_produced: [u8; 15],
-    pub zmq_produced: [u8; 15],
 }
