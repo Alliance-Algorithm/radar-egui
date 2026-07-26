@@ -1,4 +1,4 @@
-use crate::zmq::data_format::ReceiveSdr;
+use crate::shared_data::SharedData;
 
 #[cfg(feature = "rerun")]
 use rerun as rr;
@@ -48,27 +48,27 @@ impl RerunVisualizer {
         let _ = frame;
     }
 
-    pub fn log_robot_positions(&mut self, _info: &ReceiveSdr) {
+    pub fn log_robot_positions(&mut self, _info: &SharedData) {
         #[cfg(feature = "rerun")]
         if let Some(rec) = self.ensure_connected() {
             let robots: &[(&str, [i16; 2])] = &[
-                ("hero", [_info.position.hero_x, _info.position.hero_y]),
+                ("hero", [_info.enemy_hero.x, _info.enemy_hero.y]),
                 (
                     "engineer",
-                    [_info.position.engineer_x, _info.position.engineer_y],
+                    [_info.enemy_engineer.x, _info.enemy_engineer.y],
                 ),
                 (
                     "infantry1",
-                    [_info.position.infantry_3_x, _info.position.infantry_3_y],
+                    [_info.enemy_infantry_3.x, _info.enemy_infantry_3.y],
                 ),
                 (
                     "infantry2",
-                    [_info.position.infantry_4_x, _info.position.infantry_4_y],
+                    [_info.enemy_infantry_4.x, _info.enemy_infantry_4.y],
                 ),
-                ("drone", [_info.position.aerial_x, _info.position.aerial_y]),
+                ("drone", [_info.enemy_aerial.x, _info.enemy_aerial.y]),
                 (
                     "sentinel",
-                    [_info.position.sentry_x, _info.position.sentry_y],
+                    [_info.enemy_sentry.x, _info.enemy_sentry.y],
                 ),
             ];
 
@@ -84,16 +84,16 @@ impl RerunVisualizer {
         }
     }
 
-    pub fn log_blood(&mut self, _info: &ReceiveSdr) {
+    pub fn log_blood(&mut self, _info: &SharedData) {
         #[cfg(feature = "rerun")]
         if let Some(rec) = self.ensure_connected() {
             let blood_data = [
-                ("hero", _info.blood.hero_blood),
-                ("engineer", _info.blood.engineer_blood),
-                ("infantry1", _info.blood.infantry_3_blood),
-                ("infantry2", _info.blood.infantry_4_blood),
-                ("saven", _info.blood.reserved),
-                ("sentinel", _info.blood.sentry_blood),
+                ("hero", _info.sdr_blood.hero_blood),
+                ("engineer", _info.sdr_blood.engineer_blood),
+                ("infantry1", _info.sdr_blood.infantry_3_blood),
+                ("infantry2", _info.sdr_blood.infantry_4_blood),
+                ("saven", _info.sdr_blood.reserved),
+                ("sentinel", _info.sdr_blood.sentry_blood),
             ];
 
             for (name, blood) in blood_data {
@@ -103,21 +103,21 @@ impl RerunVisualizer {
         }
     }
 
-    pub fn log_economy(&mut self, _info: &ReceiveSdr) {
+    pub fn log_economy(&mut self, _info: &SharedData) {
         #[cfg(feature = "rerun")]
         if let Some(rec) = self.ensure_connected() {
             let _ = rec.log(
                 "world/stats/economy/remain",
-                &rr::Scalars::new([_info.state.remaining_gold as f64]),
+                &rr::Scalars::new([_info.sdr_state.remaining_gold as f64]),
             );
             let _ = rec.log(
                 "world/stats/economy/total",
-                &rr::Scalars::new([_info.state.total_gold as f64]),
+                &rr::Scalars::new([_info.sdr_state.total_gold as f64]),
             );
         }
     }
 
-    pub fn log_all(&mut self, info: &ReceiveSdr) {
+    pub fn log_all(&mut self, info: &SharedData) {
         self.log_robot_positions(info);
         self.log_blood(info);
         self.log_economy(info);

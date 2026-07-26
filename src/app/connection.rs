@@ -1,8 +1,8 @@
 use super::{ConnectionStatus, RadarApp};
-use crate::zmq::data_format::ReceiveSdr;
+use crate::shared_data::SharedData;
 
 impl RadarApp {
-    pub(super) fn update_connection_status(&mut self, snapshot: Option<&ReceiveSdr>) {
+    pub(super) fn update_connection_status(&mut self, snapshot: Option<&SharedData>) {
         if let Some(signal) = snapshot {
             self.connection_status = ConnectionStatus::Connected;
             self.error_message = None;

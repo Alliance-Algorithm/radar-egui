@@ -1,6 +1,7 @@
 use deku::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, DekuRead, DekuWrite)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, DekuRead, DekuWrite, Serialize, Deserialize)]
 #[deku(ctx = "_endian: deku::ctx::Endian", id_type = "u16")]
 pub enum DeviceId {
     #[deku(id = "0")]

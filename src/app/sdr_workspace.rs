@@ -5,13 +5,13 @@ use crate::theme;
 use crate::widgets::{
     demo_receive_sdr, robot_markers, MinimapOptions, MinimapWidget, StatusPanels,
 };
-use crate::zmq::data_format::ReceiveSdr;
+use crate::shared_data::SharedData;
 
 impl RadarApp {
     pub(super) fn show_sdr_workspace(
         &mut self,
         ctx: &egui::Context,
-        live_snapshot: Option<&ReceiveSdr>,
+        live_snapshot: Option<&SharedData>,
     ) {
         let demo = if self.sdr_demo {
             Some(demo_receive_sdr())
@@ -142,7 +142,7 @@ impl RadarApp {
     pub(super) fn show_sdr_sidebar(
         &mut self,
         ui: &mut egui::Ui,
-        radar_snapshot: Option<&ReceiveSdr>,
+        radar_snapshot: Option<&SharedData>,
     ) {
         white_card(ui, "连接", |ui| {
             status_chip(
@@ -235,7 +235,7 @@ impl RadarApp {
     pub(super) fn show_sdr_bottom_dock(
         &mut self,
         ui: &mut egui::Ui,
-        radar_snapshot: Option<&ReceiveSdr>,
+        radar_snapshot: Option<&SharedData>,
     ) {
         let Some(info) = radar_snapshot else {
             ui.label(
@@ -428,48 +428,24 @@ impl RadarApp {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(info.state.remaining_gold.to_string())
+                        egui::RichText::new(info.sdr_state.remaining_gold.to_string())
                             .color(theme::text())
                             .size(28.0),
                     );
                     ui.label(
-                        egui::RichText::new(format!("/ {}", info.state.total_gold))
+                        egui::RichText::new(format!("/ {}", info.sdr_state.total_gold))
                             .color(theme::text_muted())
                             .size(16.0),
                     );
                 });
-                let ratio = if info.state.total_gold > 0 {
-                    info.state.remaining_gold as f32 / info.state.total_gold as f32
+                let ratio = if info.sdr_state.total_gold > 0 {
+                    info.sdr_state.remaining_gold as f32 / info.sdr_state.total_gold as f32
                 } else {
                     0.0
                 };
                 hp_bar(ui, ratio, theme::BLUE);
                 ui.add_space(10.0);
-                ui.horizontal_wrapped(|ui| {
-                    let labels = ["A", "B", "C", "D", "E", "F"];
-                    for (i, label) in labels.iter().enumerate() {
-                        let active = info.state.occupation_status[i] != 0;
-                        let fill = if active {
-                            theme::success_bg()
-                        } else {
-                            theme::card_bg_muted()
-                        };
-                        let stroke = if active {
-                            theme::GREEN
-                        } else {
-                            theme::border()
-                        };
-                        let text = if active {
-                            theme::GREEN
-                        } else {
-                            theme::text_faint()
-                        };
-                        egui::Frame::new()
-                            .fill(fill)
-                            .stroke(egui::Stroke::new(1.0, stroke))
-                            .corner_radius(egui::CornerRadius::same(255))
-                            .inner_margin(egui::Margin::symmetric(12, 7))
-                            .show(ui, |ui| {
+                ui.label("（无上位数据）");
                                 ui.label(egui::RichText::new(*label).color(text).size(14.0));
                             });
                     }
