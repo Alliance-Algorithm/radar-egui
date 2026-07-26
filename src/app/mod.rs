@@ -1,31 +1,40 @@
 use std::sync::Once;
 
 use self::video_texture::VideoTextureCache;
+use crate::laser::video::VideoFrameReader;
 use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
 use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
 use crate::services::process_control::ProcessControl;
 use crate::state::{LaserObservationReader, PointCloudFrameReader, SharedReader};
 use crate::theme;
-use crate::laser::video::VideoFrameReader;
-use crate::widgets::{LaserPanel, MinimapWidget};
 
 mod assets;
+mod chrome;
 mod connection;
+mod laser_inspector;
+mod laser_process_controls;
+mod laser_stage;
+mod laser_workspace;
+mod mode_rail;
+mod radar_workspace;
+mod sdr_workspace;
+mod serial_workspace;
+mod shell;
 mod theme_apply;
 mod video_texture;
-mod view;
 
 static FONT_ONCE: Once = Once::new();
 const MINIMAP_BG_PATH: &str = "assets/minimap_bg.png";
 const LOGO_PATH: &str = "assets/logo.png";
-const MINIMAP_DEFAULT_PAN_Y: f32 = 18.0;
+pub(super) const MINIMAP_DEFAULT_PAN_Y: f32 = 18.0;
 
 #[derive(PartialEq, Clone, Copy)]
 enum ActiveTab {
     Sdr,
     Laser,
     Radar,
+    Serial,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +76,11 @@ pub struct RadarApp {
     minimap_texture_failed: bool,
     minimap_pan: egui::Vec2,
     minimap_zoom: f32,
+    sdr_selected: usize,
+    sdr_show_grid: bool,
+    sdr_show_labels: bool,
+    sdr_show_heat: bool,
+    sdr_demo: bool,
     logo_texture: Option<egui::TextureHandle>,
     logo_texture_failed: bool,
 
@@ -95,8 +109,24 @@ pub struct RadarApp {
     process_control: ProcessControl,
     camera_device: String,
     enemy_color: EnemyColor,
+    radar_side: String,
     stream_on_start: bool,
     record_on_start: bool,
+
+    laser_stage_overlay: bool,
+    laser_stage_demo: bool,
+
+    serial_port_name: String,
+    serial_baud: u32,
+    serial_timeout_ms: u32,
+    serial_open: bool,
+    serial_error: Option<String>,
+    serial_parse_enable: [bool; 6],
+    serial_frame_log: std::collections::VecDeque<crate::widgets::SerialFrameLogLine>,
+    #[allow(dead_code)]
+    serial_rx_handle: Option<std::thread::JoinHandle<()>>,
+    #[allow(dead_code)]
+    serial_tx_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 #[derive(PartialEq)]
@@ -107,18 +137,20 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        let (shared_reader, _shared_writer) = SharedReader::new_pair();
-        let shared = shared_reader.inner();
+        let (zmq_reader, _zmq_writer) = ZmqReader::new_pair();
+        let (serial_reader, serial_writer) = SerialReader::new_pair();
         let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
 
         let zmq_sub = ZmqSubRuntime::start(
             &["tcp://127.0.0.1:5555".into(), "tcp://127.0.0.1:5556".into()],
-            shared.clone(),
+            zmq_reader.inner().clone(),
+            serial_reader.inner().clone(),
         );
 
         let zmq_pub = ZmqPubRuntime::start(
             "tcp://*:5557",
-            shared.clone(),
+            zmq_reader.inner().clone(),
+            serial_writer.inner(),
         );
 
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
@@ -134,9 +166,14 @@ impl Default for RadarApp {
             minimap_texture_failed: false,
             minimap_pan: egui::vec2(0.0, MINIMAP_DEFAULT_PAN_Y),
             minimap_zoom: 1.0,
+            sdr_selected: 0,
+            sdr_show_grid: true,
+            sdr_show_labels: true,
+            sdr_show_heat: true,
+            sdr_demo: false,
             logo_texture: None,
             logo_texture_failed: false,
-            shared_reader,
+            zmq_reader,
             connection_status: ConnectionStatus::Disconnected,
             last_update: None,
             zmq_sub,
@@ -158,8 +195,21 @@ impl Default for RadarApp {
             process_control: ProcessControl::new(),
             camera_device: "/dev/laser_capture".to_string(),
             enemy_color: EnemyColor::Auto,
+            radar_side: "red".to_string(),
             stream_on_start: true,
             record_on_start: false,
+            laser_stage_overlay: true,
+            laser_stage_demo: false,
+            serial_reader,
+            serial_port_name: "/dev/ttyUSB0".to_string(),
+            serial_baud: 115_200,
+            serial_timeout_ms: 50,
+            serial_open: false,
+            serial_error: None,
+            serial_parse_enable: [true; 6],
+            serial_frame_log: std::collections::VecDeque::new(),
+            serial_rx_handle: None,
+            serial_tx_handle: None,
         }
     }
 }
@@ -173,18 +223,52 @@ impl RadarApp {
         self.last_logged_radar_version = 0;
     }
 
-    fn reconnect_laser(&mut self) {
-        // ZMQ auto-reconnects — no manual reconnect needed
-    }
-
-    fn ensure_laser_started(&mut self) {}
-
     fn ensure_video_started(&mut self) {
         self.video_runtime.ensure_started();
     }
 
     fn ensure_pointcloud_started(&mut self) {
         self.pointcloud_runtime.ensure_started();
+    }
+
+    fn open_serial(&mut self) {
+        use crate::serial::serial::{start_receiver, start_transmitter, Serial};
+        use crate::serial::serialconfig::SerialConfig;
+
+        if self.serial_open {
+            return;
+        }
+        let config = SerialConfig {
+            port_name: self.serial_port_name.clone(),
+            baud_rate: self.serial_baud,
+            timeout: u64::from(self.serial_timeout_ms),
+        };
+        match Serial::new(config) {
+            Ok(port) => match port.clone_serial_port() {
+                Ok(port_tx) => {
+                    let rx =
+                        start_receiver(port, self.serial_reader.inner(), self.zmq_reader.inner());
+                    let tx = start_transmitter(
+                        port_tx,
+                        self.serial_reader.inner(),
+                        self.zmq_reader.inner(),
+                    );
+                    self.serial_rx_handle = Some(rx);
+                    self.serial_tx_handle = Some(tx);
+                    self.serial_open = true;
+                    self.serial_error = None;
+                    log::info!("Serial opened on {}", self.serial_port_name);
+                }
+                Err(e) => {
+                    self.serial_error = Some(format!("clone port: {e}"));
+                    log::error!("Serial clone failed: {e}");
+                }
+            },
+            Err(e) => {
+                self.serial_error = Some(format!("open: {e}"));
+                log::error!("Serial open failed: {e}");
+            }
+        }
     }
 
     fn update_pointcloud(&mut self) {
@@ -224,12 +308,16 @@ impl RadarApp {
 }
 
 impl eframe::App for RadarApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        app_clear_color()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.setup_fonts(ctx);
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
         self.ensure_logo_texture(ctx);
-        let radar_snapshot = Some(self.shared_reader.snapshot());
+        let radar_snapshot = self.zmq_reader.snapshot();
         self.update_connection_status(radar_snapshot.as_ref());
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();
@@ -238,203 +326,42 @@ impl eframe::App for RadarApp {
         }
 
         match self.active_tab {
-            ActiveTab::Sdr => {
-                egui::SidePanel::right("radar_inspector")
-                    .exact_width(356.0)
-                    .resizable(false)
-                    .show_separator_line(false)
-                    .frame(
-                        egui::Frame::new()
-                            .fill(theme::panel_bg())
-                            .inner_margin(egui::Margin::same(18)),
-                    )
-                    .show(ctx, |ui| {
-                        self.show_radar_sidebar(ui, radar_snapshot.as_ref());
-                    });
-
-                egui::CentralPanel::default()
-                    .frame(
-                        egui::Frame::new()
-                            .fill(theme::app_bg())
-                            .inner_margin(egui::Margin::same(18)),
-                    )
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(58.0, ui.available_height()),
-                                egui::Layout::top_down(egui::Align::Center),
-                                |ui| {
-                                    self.show_mode_rail(ui);
-                                },
-                            );
-                            ui.add_space(12.0);
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                            egui::RichText::new("SDR Workspace")
-                                            .color(theme::text())
-                                            .size(21.0),
-                                    );
-                                    ui.add_space(12.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "white battle board / live robot overlay",
-                                        )
-                                        .color(theme::text_muted())
-                                        .size(13.0),
-                                    );
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if ui.button("Reset View").clicked() {
-                                                self.minimap_pan =
-                                                    egui::vec2(0.0, MINIMAP_DEFAULT_PAN_Y);
-                                                self.minimap_zoom = 1.0;
-                                            }
-                                        },
-                                    );
-                                });
-                                ui.add_space(14.0);
-                                MinimapWidget::new().show_with_state(
-                                    ui,
-                                    radar_snapshot.as_ref(),
-                                    self.minimap_texture.as_ref(),
-                                    &mut self.minimap_pan,
-                                    &mut self.minimap_zoom,
-                                );
-                            });
-                        });
-                    });
-            }
-            ActiveTab::Laser => {
-                self.ensure_laser_started();
-                self.ensure_video_started();
-                let laser_snapshot = self.laser_feed.snapshot();
-                self.laser_video_texture.refresh(ctx, &self.video_feed);
-
-                egui::SidePanel::right("laser_inspector")
-                    .exact_width(356.0)
-                    .resizable(false)
-                    .show_separator_line(false)
-                    .frame(
-                        egui::Frame::new()
-                            .fill(theme::panel_bg())
-                            .inner_margin(egui::Margin::same(18)),
-                    )
-                    .show(ctx, |ui| {
-                        self.show_laser_sidebar(ui, laser_snapshot.as_ref());
-                    });
-
-                egui::CentralPanel::default()
-                    .frame(
-                        egui::Frame::new()
-                            .fill(theme::app_bg())
-                            .inner_margin(egui::Margin::same(18)),
-                    )
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(58.0, ui.available_height()),
-                                egui::Layout::top_down(egui::Align::Center),
-                                |ui| {
-                                    self.show_mode_rail(ui);
-                                },
-                            );
-                            ui.add_space(12.0);
-                            let content_width = ui.available_width();
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(content_width, ui.available_height()),
-                                egui::Layout::top_down(egui::Align::Min),
-                                |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new("Laser Workspace")
-                                                .color(theme::text())
-                                                .size(21.0),
-                                        );
-                                        ui.add_space(12.0);
-                                        ui.label(
-                                            egui::RichText::new(
-                                                "video feed / target overlay / live detections",
-                                            )
-                                            .color(theme::text_muted())
-                                            .size(13.0),
-                                        );
-                                    });
-                                    ui.add_space(14.0);
-                                    LaserPanel::new().show_video_stage(
-                                        ui,
-                                        laser_snapshot
-                                            .as_ref()
-                                            .map(|snapshot| &snapshot.observation),
-                                        self.laser_video_texture.texture(),
-                                    );
-                                },
-                            );
-                        });
-                    });
-            }
-            ActiveTab::Radar => {
-                self.ensure_pointcloud_started();
-
-                egui::CentralPanel::default()
-                    .frame(
-                        egui::Frame::new()
-                            .fill(theme::app_bg())
-                            .inner_margin(egui::Margin::same(18)),
-                    )
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(58.0, ui.available_height()),
-                                egui::Layout::top_down(egui::Align::Center),
-                                |ui| {
-                                    self.show_mode_rail(ui);
-                                },
-                            );
-                            ui.add_space(12.0);
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("Radar Workspace")
-                                            .color(theme::text())
-                                            .size(21.0),
-                                    );
-                                    ui.add_space(12.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "point cloud / rerun 3D viewer",
-                                        )
-                                        .color(theme::text_muted())
-                                        .size(13.0),
-                                    );
-                                });
-                                ui.add_space(24.0);
-                                ui.vertical_centered(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("◉  Point Cloud Radar")
-                                            .color(theme::text())
-                                            .size(18.0),
-                                    );
-                                    ui.add_space(10.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "Rerun Viewer 在外部窗口中显示 3D 点云",
-                                        )
-                                        .color(theme::text_muted())
-                                        .size(14.0),
-                                    );
-                                    ui.add_space(8.0);
-                                    self.show_pointcloud_status(ui);
-                                });
-                            });
-                        });
-                    });
-            }
+            ActiveTab::Sdr => self.show_sdr_workspace(ctx, radar_snapshot.as_ref()),
+            ActiveTab::Laser => self.show_laser_workspace(ctx),
+            ActiveTab::Radar => self.show_radar_workspace(ctx),
+            ActiveTab::Serial => self.show_serial_workspace(ctx),
         }
 
-        self.show_theme_toggle(ctx);
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+/// Returns the clear color that matches [`theme::app_bg()`] for the current theme.
+///
+/// This is the intended value for `eframe::NativeOptions::clear_color` and
+/// `eframe::App::clear_color` — it prevents a black hairline at panel boundaries
+/// caused by the default clear color when fractional-DPI gaps appear.
+pub(super) fn app_clear_color() -> [f32; 4] {
+    theme::app_bg().to_normalized_gamma_f32()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_clear_color_matches_theme_app_bg_light() {
+        theme::set_dark_mode(false);
+        let color = app_clear_color();
+        let expected = egui::Color32::from_rgb(0xf5, 0xf7, 0xfb).to_normalized_gamma_f32();
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn app_clear_color_matches_theme_app_bg_dark() {
+        theme::set_dark_mode(true);
+        let color = app_clear_color();
+        let expected = egui::Color32::from_rgb(0x11, 0x11, 0x1b).to_normalized_gamma_f32();
+        assert_eq!(color, expected);
     }
 }
