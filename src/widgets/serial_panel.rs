@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use egui::{RichText, Ui};
 
-use crate::serial::data_format::{
-    GameStateData, MinimapReceiveRadarData, RadarMarkProcessData, SerialData, SiteEventData,
+use crate::shared_data::{
+    GameStateData, MinimapReceiveRadarData, RadarMarkProcessData, SharedData, SiteEventData,
 };
 use crate::theme;
 
@@ -32,7 +32,7 @@ impl SerialPanel {
     pub fn show_monitor(
         &self,
         ui: &mut Ui,
-        data: &SerialData,
+        data: &SharedData,
         serial_open: bool,
         port_label: &str,
         baud: u32,
@@ -85,14 +85,14 @@ impl SerialPanel {
                     ui.set_min_size(tl.size());
                     ui.set_max_size(tl.size());
                     self.card(ui, "比赛状态", "0x0001 GameState · 1 Hz", |ui| {
-                        show_game_state(ui, &data.game_state_data, data.game_result_data.winner);
+                        show_game_state(ui, &data.game_state, data.game_result.winner);
                     });
                 });
                 ui.allocate_ui_at_rect(tr, |ui| {
                     ui.set_min_size(tr.size());
                     ui.set_max_size(tr.size());
                     self.card(ui, "场地事件", "0x0101 SiteEvent · 1 Hz", |ui| {
-                        show_site_events(ui, &data.site_event_data, &data.dart_launch_data);
+                        show_site_events(ui, &data.site_event, &data.dart_launch);
                     });
                 });
                 ui.allocate_ui_at_rect(bl, |ui| {
@@ -103,7 +103,7 @@ impl SerialPanel {
                         "雷达标记",
                         "0x020C MarkProcess · 12 机易伤 / 标记",
                         |ui| {
-                            show_mark_grid(ui, &data.radar_mark_process_data);
+                            show_mark_grid(ui, &data.radar_mark_process);
                         },
                     );
                 });
@@ -160,7 +160,7 @@ impl SerialPanel {
         });
     }
 
-    pub fn show_dirty_flags(&self, ui: &mut Ui, data: &SerialData) {
+    pub fn show_dirty_flags(&self, ui: &mut Ui, data: &SharedData) {
         self.card(ui, "脏标志", "serial_produced / zmq_produced", |ui| {
             egui::Grid::new("serial_dirty_meta")
                 .num_columns(2)
@@ -343,7 +343,7 @@ fn draw_phase_ring(ui: &Ui, rect: egui::Rect, pct: f32) {
 fn show_site_events(
     ui: &mut Ui,
     site: &SiteEventData,
-    dart: &crate::serial::data_format::DartLaunchData,
+    dart: &crate::shared_data::DartLaunchData,
 ) {
     ui.horizontal_wrapped(|ui| {
         event_chip(ui, "补给站", site.supply_zone_status != 0);
