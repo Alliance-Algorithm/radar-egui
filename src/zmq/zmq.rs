@@ -1,7 +1,9 @@
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use zmq2;
 
 use crate::shared_data::{
@@ -91,9 +93,13 @@ pub fn zmq_start_pub(
     pub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
     rx: mpsc::Receiver<usize>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        let Ok(idx) = rx.recv() else { continue };
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(idx) = rx.recv() else { break };
         let lock = shared.lock().unwrap();
         match idx {
             IDX_GAME_STATE => {
@@ -141,8 +147,12 @@ pub fn zmq_start_pub(
 pub fn zmq_start_sub(
     sub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         let Ok(bytes) = sub_socket.recv_bytes(0) else {
             continue;
         };

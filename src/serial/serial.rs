@@ -9,6 +9,7 @@ use crate::shared_data::{
 };
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -22,13 +23,15 @@ pub struct Serial {
 impl Serial {
     /// Open a serial port with the given config.
     pub fn new(config: SerialConfig) -> std::io::Result<Self> {
-        let port = SerialPort::open(config.port_name, |mut s: Settings| {
+        let mut port = SerialPort::open(config.port_name, |mut s: Settings| {
             s.set_raw();
             s.set_baud_rate(config.baud_rate)?;
             s.set_char_size(serial2::CharSize::Bits8);
             s.set_stop_bits(serial2::StopBits::One);
             Ok(s)
         })?;
+
+        port.set_read_timeout(Duration::from_millis(100))?;
 
         Ok(Self { serial_port: port })
     }
@@ -75,6 +78,7 @@ pub fn serial_start_receiver(
     mut serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
     pub_tx: Option<mpsc::Sender<usize>>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     let mut serial_parser = match pub_tx {
         Some(tx) => SerialParser::new_with_tx(serial_data.clone(), tx),
@@ -82,6 +86,9 @@ pub fn serial_start_receiver(
     };
     let mut data: Vec<u8> = Vec::new();
     thread::spawn(move || loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         match serial.receive_data() {
             Ok(add_data) => {
                 data.extend_from_slice(&add_data);
@@ -97,8 +104,12 @@ pub fn serial_start_receiver(
 pub fn serial_start_transmitter(
     serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         let mut data = serial_data.lock().unwrap();
         for idx in 0..7 {
             let (cmd_id, raw) = match idx {
