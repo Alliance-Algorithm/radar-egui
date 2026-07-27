@@ -110,7 +110,10 @@ pub fn serial_start_transmitter(
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let mut data = serial_data.lock().unwrap();
+        let mut data = serial_data.lock().unwrap_or_else(|e| {
+            log::error!("SharedData mutex poisoned in serial TX");
+            e.into_inner()
+        });
         for idx in 0..7 {
             let (cmd_id, raw) = match idx {
                 0 => (GAME_STATE_CMD_ID, data.game_state.to_bytes()),

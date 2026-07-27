@@ -100,7 +100,7 @@ pub fn zmq_start_pub(
             break;
         }
         let Ok(idx) = rx.recv() else { break };
-        let lock = shared.lock().unwrap();
+        let lock = shared.lock().unwrap_or_else(|e| e.into_inner());
         match idx {
             IDX_GAME_STATE => {
                 let msg = serde_json::json!({

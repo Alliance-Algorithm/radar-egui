@@ -86,7 +86,10 @@ impl SerialParser {
                 GAME_STATE_CMD_ID => {
                     if let Ok((_, v)) = GameStateData::from_bytes((data, 0)) {
                         log::info!("GameState: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.game_state = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_GAME_STATE).ok();
@@ -97,7 +100,10 @@ impl SerialParser {
                 GAME_RESULT_CMD_ID => {
                     if let Ok((_, v)) = GameResultData::from_bytes((data, 0)) {
                         log::info!("GameResult: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.game_result = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_GAME_RESULT).ok();
@@ -108,7 +114,10 @@ impl SerialParser {
                 SITE_EVENT_CMD_ID => {
                     if let Ok((_, v)) = SiteEventData::from_bytes((data, 0)) {
                         log::info!("SiteEvent: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.site_event = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_SITE_EVENT).ok();
@@ -119,7 +128,10 @@ impl SerialParser {
                 DART_LAUNCH_CMD_ID => {
                     if let Ok((_, v)) = DartLaunchData::from_bytes((data, 0)) {
                         log::info!("DartLaunch: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.dart_launch = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_DART_LAUNCH).ok();
@@ -130,7 +142,10 @@ impl SerialParser {
                 RADAR_MARK_PROCESS_CMD_ID => {
                     if let Ok((_, v)) = RadarMarkProcessData::from_bytes((data, 0)) {
                         log::info!("RadarMarkProcess: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.radar_mark_process = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_RADAR_MARK_PROCESS).ok();
@@ -141,7 +156,10 @@ impl SerialParser {
                 RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID => {
                     if let Ok((_, v)) = RadarAutonomousDecisionSyncData::from_bytes((data, 0)) {
                         log::info!("RadarAutonomousDecisionSync: {:?}", v);
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.radar_autonomous_decision_sync = v;
                         if let Some(ref tx) = self.tx {
                             tx.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
@@ -158,7 +176,10 @@ impl SerialParser {
                             "RobotInteraction: sub_cmd=0x{:04X} sender={:?} receiver={:?} sub_data_len={}",
                             sub_cmd, sender, receiver, data.len() - 6
                         );
-                        let mut lock = self.protocol_data.lock().unwrap();
+                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
+                            log::error!("SharedData mutex poisoned in serial parser");
+                            e.into_inner()
+                        });
                         lock.robot_interaction = RobotInteractionData {
                             subcontext_cmd_id: sub_cmd,
                             sender_id: sender,
