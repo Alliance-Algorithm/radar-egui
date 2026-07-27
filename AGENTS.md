@@ -77,11 +77,11 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 
 | 常量 | 值 | 方向 | 类型 |
 |------|----|------|------|
-| `ZMQ_PUB_GAME_STATE` | 0x1001 | Rust → 外部 | `TransmitGameState` |
-| `ZMQ_PUB_RADAR_MARK` | 0x1002 | Rust → 外部 | `TransmitRadarMarkProcess` |
 | `ZMQ_SUB_LIDAR_LOCATION` | 0x2001 | 外部 → Rust | `ReceiveLidarLocation` |
 | `ZMQ_SUB_SDR` | 0x2002 | 外部 → Rust | `ReceiveSdr` |
 | `ZMQ_SUB_LASER` | 0x2003 | 外部 → Rust | `ReceiveLaser` |
+
+PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段，其值复用 `shared_data.rs` 中定义的 DJI 协议 `CMD_ID` 常量，不另设 ZMQ 专用 ID。
 
 默认：SUB 连接 `tcp://127.0.0.1:5555` + `5556`；PUB 绑定 `tcp://*:5557`。
 
