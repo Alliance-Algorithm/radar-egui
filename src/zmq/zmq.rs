@@ -7,7 +7,7 @@ use zmq2;
 use crate::shared_data::{
     SdrEnemyRobotBloodData, SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData,
     SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData, SharedData,
-    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
+    GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, RADAR_MARK_PROCESS_CMD_ID,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
@@ -98,6 +98,7 @@ pub fn zmq_start_pub(
         match idx {
             IDX_GAME_STATE => {
                 let msg = serde_json::json!({
+                    "cmd_id": GAME_STATE_CMD_ID,
                     "game_type": lock.game_state.game_type,
                     "game_progress": lock.game_state.game_progress,
                     "stage_remain_time": lock.game_state.stage_remain_time,
@@ -108,6 +109,7 @@ pub fn zmq_start_pub(
             }
             IDX_RADAR_MARK_PROCESS => {
                 let msg = serde_json::json!({
+                    "cmd_id": RADAR_MARK_PROCESS_CMD_ID,
                     "opponent_hero_vulnerable": lock.radar_mark_process.opponent_hero_vulnerable,
                     "opponent_engineer_vulnerable": lock.radar_mark_process.opponent_engineer_vulnerable,
                     "opponent_infantry_3_vulnerable": lock.radar_mark_process.opponent_infantry_3_vulnerable,
