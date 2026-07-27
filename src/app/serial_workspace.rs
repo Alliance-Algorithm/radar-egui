@@ -112,17 +112,6 @@ impl RadarApp {
                                     }
                                 });
                             ui.end_row();
-                            ui.label(
-                                egui::RichText::new("Timeout")
-                                    .color(theme::text_muted())
-                                    .size(13.0),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut self.serial_timeout_ms)
-                                    .range(10..=500)
-                                    .suffix(" ms"),
-                            );
-                            ui.end_row();
                         });
                     ui.add_space(10.0);
                     if ui

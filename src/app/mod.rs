@@ -120,7 +120,6 @@ pub struct RadarApp {
 
     serial_port_name: String,
     serial_baud: u32,
-    serial_timeout_ms: u32,
     serial_open: bool,
     serial_error: Option<String>,
     serial_parse_enable: [bool; 6],
@@ -198,7 +197,6 @@ impl Default for RadarApp {
             laser_stage_demo: false,
             serial_port_name: "/dev/ttyUSB0".to_string(),
             serial_baud: 115_200,
-            serial_timeout_ms: 50,
             serial_open: false,
             serial_error: None,
             serial_parse_enable: [true; 6],
@@ -237,7 +235,6 @@ impl RadarApp {
         let config = SerialConfig {
             port_name: self.serial_port_name.clone(),
             baud_rate: self.serial_baud,
-            timeout: u64::from(self.serial_timeout_ms),
         };
         match Serial::new(config) {
             Ok(port) => match port.clone_serial_port() {
