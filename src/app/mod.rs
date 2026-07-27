@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Once;
 
 use self::video_texture::VideoTextureCache;
@@ -118,15 +120,13 @@ pub struct RadarApp {
 
     serial_port_name: String,
     serial_baud: u32,
-    serial_timeout_ms: u32,
     serial_open: bool,
     serial_error: Option<String>,
     serial_parse_enable: [bool; 6],
     serial_frame_log: std::collections::VecDeque<crate::widgets::SerialFrameLogLine>,
-    #[allow(dead_code)]
     serial_rx_handle: Option<std::thread::JoinHandle<()>>,
-    #[allow(dead_code)]
     serial_tx_handle: Option<std::thread::JoinHandle<()>>,
+    serial_stop: Option<Arc<AtomicBool>>,
 }
 
 #[derive(PartialEq)]
@@ -197,13 +197,13 @@ impl Default for RadarApp {
             laser_stage_demo: false,
             serial_port_name: "/dev/ttyUSB0".to_string(),
             serial_baud: 115_200,
-            serial_timeout_ms: 50,
             serial_open: false,
             serial_error: None,
             serial_parse_enable: [true; 6],
             serial_frame_log: std::collections::VecDeque::new(),
             serial_rx_handle: None,
             serial_tx_handle: None,
+            serial_stop: None,
         }
     }
 }
@@ -235,20 +235,23 @@ impl RadarApp {
         let config = SerialConfig {
             port_name: self.serial_port_name.clone(),
             baud_rate: self.serial_baud,
-            timeout: u64::from(self.serial_timeout_ms),
         };
         match Serial::new(config) {
             Ok(port) => match port.clone_serial_port() {
                 Ok(port_tx) => {
                     let shared = self.shared_reader.inner();
-                    let rx = serial_start_receiver(
-                        port,
-                        shared.clone(),
-                        Some(self.zmq_pub.pub_tx.clone()),
-                    );
-                    let tx = serial_start_transmitter(port_tx, shared.clone());
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let pub_tx = self.zmq_pub.pub_tx.lock().unwrap().clone();
+                    let (tx_tx, tx_rx) = std::sync::mpsc::channel();
+                    let notify_all = match pub_tx {
+                        Some(zmq_tx) => vec![zmq_tx, tx_tx],
+                        None => vec![tx_tx],
+                    };
+                    let rx = serial_start_receiver(port, shared.clone(), notify_all, stop.clone());
+                    let tx = serial_start_transmitter(port_tx, shared.clone(), tx_rx, stop.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
+                    self.serial_stop = Some(stop);
                     self.serial_open = true;
                     self.serial_error = None;
                     log::info!("Serial opened on {}", self.serial_port_name);
@@ -263,6 +266,21 @@ impl RadarApp {
                 log::error!("Serial open failed: {e}");
             }
         }
+    }
+
+    fn close_serial(&mut self) {
+        if let Some(ref stop) = self.serial_stop {
+            stop.store(true, Ordering::Relaxed);
+        }
+        self.serial_stop = None;
+        if let Some(handle) = self.serial_rx_handle.take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.serial_tx_handle.take() {
+            let _ = handle.join();
+        }
+        self.serial_open = false;
+        log::info!("Serial closed");
     }
 
     fn update_pointcloud(&mut self) {

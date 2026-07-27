@@ -4,6 +4,4 @@ pub struct SerialConfig {
     pub port_name: String,
     /// Baud rate, e.g. 115200
     pub baud_rate: u32,
-    /// Read timeout in milliseconds
-    pub timeout: u64,
 }

@@ -27,13 +27,13 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 │         │                 │                 │                    │          │
 │  ┌──────┴─────────────────┴─────────────────┴────────────────────┴──────┐  │
 │  │                       共享状态层 Arc<Mutex<T>>                        │  │
-│  │     ZmqData  │  SerialData  │  LaserObservation  │  PointCloudFrame  │  │
+│  │     SharedData (统一)  │  LaserObservation  │  PointCloudFrame  │  │
 │  └──────┬─────────────────┬─────────────────┬────────────────────┬──────┘  │
 │         │                 │                 │                    │          │
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────────┴──────┐  │
 │  │ ZMQ SUB/PUB │  │ Serial RX/TX│  │ Video SHM   │  │ PCD SHM         │  │
 │  │ :5555/5556  │  │ (serial2)   │  │ /laser_frame│  │ /pointcloud_    │  │
-│  │ :5557(PUB)  │  │ 代码有未接线│  │ (懒启动)    │  │ frame (懒启动)  │  │
+│  │ :5557(PUB)  │  │             │  │ (懒启动)    │  │ frame (懒启动)  │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -58,15 +58,18 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 
 ```
 alliance_radar_sdr ──ZMQ PUB :5555──┐
-laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──▶ Arc<Mutex<ZmqData>>
+laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──▶ Arc<Mutex<SharedData>>
 alliance_radar_location_lidar ─────┘         │
-        (:5556 LidarLocation)                ├─▶ UI (SDR 小地图/面板, Laser 分析)
-                                             └─▶ (设计) 写 SerialData / zmq_produced → 串口 TX
+                                             ├─▶ UI (SDR 小地图/面板, Laser 分析)
+                                             └─▶ Serial TX (10ms 轮询 SharedData → UART)
 
-DJI Referee ──UART──▶ Serial RX ──▶ SerialData.serial_produced[]
-                                      │
-                                      └─▶ ZMQ PUB 线程 (10ms) ──▶ :5557
-                                          TransmitGameState / TransmitRadarMarkProcess
+DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx) ──▶ ZMQ PUB 线程
+                                                                     │
+                                                                     ├─▶ :5557
+                                                                     │  TransmitGameState /
+                                                                     │  TransmitRadarMarkProcess
+                                                                     │
+                                                                     └─▶ Serial TX (通知对应 idx 只发一帧)
 
 laser_guidance ──SHM /laser_frame──▶ VideoRuntime (懒) ──▶ Laser 视频
 model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ Rerun
@@ -76,11 +79,11 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 
 | 常量 | 值 | 方向 | 类型 |
 |------|----|------|------|
-| `ZMQ_PUB_GAME_STATE` | 0x1001 | Rust → 外部 | `TransmitGameState` |
-| `ZMQ_PUB_RADAR_MARK` | 0x1002 | Rust → 外部 | `TransmitRadarMarkProcess` |
 | `ZMQ_SUB_LIDAR_LOCATION` | 0x2001 | 外部 → Rust | `ReceiveLidarLocation` |
 | `ZMQ_SUB_SDR` | 0x2002 | 外部 → Rust | `ReceiveSdr` |
 | `ZMQ_SUB_LASER` | 0x2003 | 外部 → Rust | `ReceiveLaser` |
+
+PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段，其值复用 `shared_data.rs` 中定义的 DJI 协议 `CMD_ID` 常量，不另设 ZMQ 专用 ID。
 
 默认：SUB 连接 `tcp://127.0.0.1:5555` + `5556`；PUB 绑定 `tcp://*:5557`。
 
@@ -116,13 +119,12 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 - eframe 入口，窗口 1280×720，`env_logger`
 
 ### `app/`
-- `RadarApp`：三标签（Laser / SDR / Radar）、主题、连接状态、进程控制 UI
-- `view.rs`：侧边栏与 Start/Stop
+- `RadarApp`：四标签（Laser / SDR / Radar / Serial）、主题、连接状态、进程控制 UI
 - `connection.rs`：按 ZMQ SDR 快照更新连接状态 / Rerun 日志
 
 ### `state.rs`
-- `ZmqReader`/`ZmqWriter`、`SerialReader`/`SerialWriter`、Laser / PointCloud 读写端
-- 统一 `Arc<Mutex<T>>` 最新值快照
+- `SharedReader`/`SharedWriter`、`LaserObservationReader`/`Writer`、`PointCloudFrameReader`/`Writer`
+- `SharedReader` 统一 `Arc<Mutex<SharedData>>` 最新值快照
 
 ### `runtime/mod.rs`
 - `ZmqSubRuntime` / `ZmqPubRuntime`
@@ -133,12 +135,12 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 - `process_control.rs`：Start All 延迟编排、FIFO 命令
 
 ### `zmq/`
-- `data_format.rs`：JSON 消息与 `ZmqData`
-- `zmq.rs`：init/send/recv、SUB/PUB 线程、`zmq_serial_update` 桥接
+- `zmq.rs`：init/send/recv、SUB/PUB 线程、`ZmqData` JSON 消息
 
 ### `serial/`
-- DJI 裁判协议：parser / package / CRC / deku 结构体、`serial_produced`/`zmq_produced`
-- `start_receiver` / `start_transmitter` **已实现，app 未调用**
+- DJI 裁判协议：parser / package / CRC / deku 结构体
+- `serial_start_receiver` / `serial_start_transmitter` — app 通过 `open_serial()` 调用
+- Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程和 Serial TX 线程
 
 ### `laser/` / `pointcloud/` / `widgets/`
 - 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板
@@ -155,8 +157,13 @@ model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ─
 - UI 每帧要最新快照；channel 易丢最新值
 - 写少读多，Mutex 竞争可接受
 
-### 为什么串口用脏标志而不是直接 channel 桥 ZMQ
-- `serial_produced[]` / `zmq_produced[]` 解耦 10ms 轮询的 PUB/TX，避免阻塞解析
+### 为什么用 channel 连接 Parser 和 ZMQ PUB
+- Parser 完成一帧解析后通过 `mpsc::Sender<usize>` 发 idx 通知
+- ZMQ PUB 线程阻塞 `rx.recv()`，有通知时才查询 SharedData 并发布
+- 对比方案：
+  - ❌ 脏标志轮询：UI 帧率不可控，可能漏更新
+  - ❌ 直接 channel 传数据：SharedData 是唯一可信源
+  - ✅ idx channel：精简通知，SharedData 始终是单一真实来源
 
 ### 为什么 ROS2 Radar 而不是 Unity
 - 定位与融合在 `alliance_radar_location_lidar`（camera + lidar + fusion + bridge）
@@ -180,7 +187,7 @@ cargo clippy -- -D warnings
 
 ## 已知缺口（给 agent 的注意点）
 
-1. 串口未挂到 `RadarApp` 启动路径
-2. ZMQ SUB 尚未完整写回 `SerialData` 做中继
+1. 串口通过 UI `open_serial()` 按钮调用，未在 `RadarApp::default` 自动启动
+2. ~~ZMQ SUB 尚未完整写回 SerialData 做中继~~（已由统一 SharedData 解决：SUB 和 Serial 都写 SharedData，TX 轮询读）
 3. ZMQ runtime `stop` 与线程循环未完全联动
 4. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准

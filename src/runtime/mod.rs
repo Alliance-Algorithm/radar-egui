@@ -33,7 +33,7 @@ impl ZmqSubRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let addrs = addrs.to_vec();
         let sub_socket = crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
-        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared);
+        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared, stop.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),
@@ -59,7 +59,7 @@ impl ZmqSubRuntime {
 pub struct ZmqPubRuntime {
     stop: Arc<AtomicBool>,
     handle: Mutex<Option<JoinHandle<()>>>,
-    pub pub_tx: std::sync::mpsc::Sender<usize>,
+    pub pub_tx: Mutex<Option<std::sync::mpsc::Sender<usize>>>,
 }
 
 impl ZmqPubRuntime {
@@ -67,16 +67,19 @@ impl ZmqPubRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let (pub_tx, pub_rx) = std::sync::mpsc::channel();
         let pub_socket = crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
-        let handle = crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx);
+        let handle = crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx, stop.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),
-            pub_tx,
+            pub_tx: Mutex::new(Some(pub_tx)),
         }
     }
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut tx) = self.pub_tx.lock() {
+            tx.take();
+        }
         if let Ok(mut h) = self.handle.lock() {
             if let Some(handle) = h.take() {
                 let _ = handle.join();

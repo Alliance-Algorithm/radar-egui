@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -7,7 +8,7 @@ use zmq2;
 use crate::shared_data::{
     SdrEnemyRobotBloodData, SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData,
     SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData, SharedData,
-    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
+    GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, RADAR_MARK_PROCESS_CMD_ID,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
@@ -78,6 +79,7 @@ pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<z
     for addr in connect_addrs.iter() {
         sub_socket.connect(addr)?;
     }
+    sub_socket.set_subscribe(b"")?;
     Ok(sub_socket)
 }
 
@@ -90,22 +92,29 @@ pub fn zmq_start_pub(
     pub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
     rx: mpsc::Receiver<usize>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
-        let Ok(idx) = rx.recv() else { continue };
-        let lock = shared.lock().unwrap();
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(idx) = rx.recv() else { break };
+        let lock = shared.lock().unwrap_or_else(|e| e.into_inner());
         match idx {
             IDX_GAME_STATE => {
                 let msg = serde_json::json!({
+                    "cmd_id": GAME_STATE_CMD_ID,
                     "game_type": lock.game_state.game_type,
                     "game_progress": lock.game_state.game_progress,
                     "stage_remain_time": lock.game_state.stage_remain_time,
                     "sync_timestamp": lock.game_state.sync_timestamp,
                 });
+                log::info!("ZMQ PUB GameState: {}", msg);
                 zmq_send(&pub_socket, &msg.to_string()).ok();
             }
             IDX_RADAR_MARK_PROCESS => {
                 let msg = serde_json::json!({
+                    "cmd_id": RADAR_MARK_PROCESS_CMD_ID,
                     "opponent_hero_vulnerable": lock.radar_mark_process.opponent_hero_vulnerable,
                     "opponent_engineer_vulnerable": lock.radar_mark_process.opponent_engineer_vulnerable,
                     "opponent_infantry_3_vulnerable": lock.radar_mark_process.opponent_infantry_3_vulnerable,
@@ -123,9 +132,12 @@ pub fn zmq_start_pub(
                     "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
                     "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
                 });
+                log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
                 zmq_send(&pub_socket, &msg.to_string()).ok();
             }
-            _ => {}
+            _ => {
+                log::warn!("ZMQ PUB unknown idx: {}", idx);
+            }
         }
         drop(lock);
     })
@@ -134,8 +146,12 @@ pub fn zmq_start_pub(
 pub fn zmq_start_sub(
     sub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
+    stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         let Ok(bytes) = sub_socket.recv_bytes(0) else {
             continue;
         };

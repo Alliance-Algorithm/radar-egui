@@ -31,7 +31,7 @@ impl SharedReader {
     }
 
     pub fn snapshot(&self) -> SharedData {
-        self.inner.lock().unwrap().clone()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn inner(&self) -> Arc<Mutex<SharedData>> {
