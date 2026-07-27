@@ -245,8 +245,13 @@ impl RadarApp {
                     let shared = self.shared_reader.inner();
                     let stop = Arc::new(AtomicBool::new(false));
                     let pub_tx = self.zmq_pub.pub_tx.lock().unwrap().clone();
-                    let rx = serial_start_receiver(port, shared.clone(), pub_tx, stop.clone());
-                    let tx = serial_start_transmitter(port_tx, shared.clone(), stop.clone());
+                    let (tx_tx, tx_rx) = std::sync::mpsc::channel();
+                    let notify_all = match pub_tx {
+                        Some(zmq_tx) => vec![zmq_tx, tx_tx],
+                        None => vec![tx_tx],
+                    };
+                    let rx = serial_start_receiver(port, shared.clone(), notify_all, stop.clone());
+                    let tx = serial_start_transmitter(port_tx, shared.clone(), tx_rx, stop.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
                     self.serial_stop = Some(stop);

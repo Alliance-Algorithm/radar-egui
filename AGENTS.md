@@ -65,9 +65,11 @@ alliance_radar_location_lidar ─────┘         │
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx) ──▶ ZMQ PUB 线程
                                                                      │
-                                                                     └─▶ :5557
-                                                                 TransmitGameState /
-                                                                 TransmitRadarMarkProcess
+                                                                     ├─▶ :5557
+                                                                     │  TransmitGameState /
+                                                                     │  TransmitRadarMarkProcess
+                                                                     │
+                                                                     └─▶ Serial TX (通知对应 idx 只发一帧)
 
 laser_guidance ──SHM /laser_frame──▶ VideoRuntime (懒) ──▶ Laser 视频
 model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ Rerun
@@ -138,7 +140,7 @@ PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段�
 ### `serial/`
 - DJI 裁判协议：parser / package / CRC / deku 结构体
 - `serial_start_receiver` / `serial_start_transmitter` — app 通过 `open_serial()` 调用
-- Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程
+- Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程和 Serial TX 线程
 
 ### `laser/` / `pointcloud/` / `widgets/`
 - 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板

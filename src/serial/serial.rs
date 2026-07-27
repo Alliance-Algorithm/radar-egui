@@ -75,12 +75,13 @@ impl Serial {
 pub fn serial_start_receiver(
     mut serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
-    pub_tx: Option<mpsc::Sender<usize>>,
+    tx_senders: Vec<mpsc::Sender<usize>>,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    let mut serial_parser = match pub_tx {
-        Some(tx) => SerialParser::new_with_tx(serial_data.clone(), tx),
-        None => SerialParser::new(serial_data.clone()),
+    let mut serial_parser = if tx_senders.is_empty() {
+        SerialParser::new(serial_data.clone())
+    } else {
+        SerialParser::new_with_tx(serial_data.clone(), tx_senders)
     };
     let mut data: Vec<u8> = Vec::new();
     thread::spawn(move || loop {
@@ -97,49 +98,52 @@ pub fn serial_start_receiver(
     })
 }
 
-/// Spawn a transmitter thread that polls shared state every 10 ms,
-/// constructs DJI frames with `serial_package`, and sends them over the serial port.
+/// Spawn a transmitter thread that listens for idx notifications via channel,
+/// constructs the corresponding DJI frame with `serial_package`, and sends it.
 pub fn serial_start_transmitter(
     serial: Serial,
     serial_data: Arc<Mutex<SharedData>>,
+    tx_rx: mpsc::Receiver<usize>,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let mut data = serial_data.lock().unwrap_or_else(|e| {
+        let Ok(idx) = tx_rx.recv() else { break };
+        let data = serial_data.lock().unwrap_or_else(|e| {
             log::error!("SharedData mutex poisoned in serial TX");
             e.into_inner()
         });
-        for idx in 0..7 {
-            let (cmd_id, raw) = match idx {
-                0 => (GAME_STATE_CMD_ID, data.game_state.to_bytes()),
-                1 => (GAME_RESULT_CMD_ID, data.game_result.to_bytes()),
-                2 => (SITE_EVENT_CMD_ID, data.site_event.to_bytes()),
-                3 => (DART_LAUNCH_CMD_ID, data.dart_launch.to_bytes()),
-                4 => (
-                    RADAR_MARK_PROCESS_CMD_ID,
-                    data.radar_mark_process.to_bytes(),
-                ),
-                5 => (
-                    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    data.radar_autonomous_decision_sync.to_bytes(),
-                ),
-                6 => {
-                    let b = data.robot_interaction.to_bytes();
-                    (ROBOT_INTERACTION_CMD_ID, Ok(b))
-                }
-                _ => continue,
-            };
-            if let Ok(data_bytes) = raw {
-                let frame = serial_package(cmd_id, data_bytes);
-                if let Ok(frame_bytes) = frame.to_bytes() {
-                    serial.send_data(&frame_bytes);
-                }
+        let (cmd_id, raw) = match idx {
+            0 => (GAME_STATE_CMD_ID, data.game_state.to_bytes()),
+            1 => (GAME_RESULT_CMD_ID, data.game_result.to_bytes()),
+            2 => (SITE_EVENT_CMD_ID, data.site_event.to_bytes()),
+            3 => (DART_LAUNCH_CMD_ID, data.dart_launch.to_bytes()),
+            4 => (
+                RADAR_MARK_PROCESS_CMD_ID,
+                data.radar_mark_process.to_bytes(),
+            ),
+            5 => (
+                RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+                data.radar_autonomous_decision_sync.to_bytes(),
+            ),
+            6 => {
+                let b = data.robot_interaction.to_bytes();
+                (ROBOT_INTERACTION_CMD_ID, Ok(b))
+            }
+            _ => {
+                log::warn!("Serial TX unknown idx: {}", idx);
+                drop(data);
+                continue;
+            }
+        };
+        drop(data);
+        if let Ok(data_bytes) = raw {
+            let frame = serial_package(cmd_id, data_bytes);
+            if let Ok(frame_bytes) = frame.to_bytes() {
+                serial.send_data(&frame_bytes);
             }
         }
-        drop(data);
-        thread::sleep(Duration::from_millis(10));
     })
 }

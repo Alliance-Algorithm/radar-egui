@@ -18,7 +18,7 @@ use std::sync::Mutex;
 pub struct SerialParser {
     frame_header: SerialFrameHeader,
     protocol_data: Arc<Mutex<SharedData>>,
-    tx: Option<mpsc::Sender<usize>>,
+    tx: Vec<mpsc::Sender<usize>>,
 }
 
 impl SerialParser {
@@ -26,18 +26,18 @@ impl SerialParser {
         SerialParser {
             frame_header: SerialFrameHeader::default(),
             protocol_data: protocol_data_input,
-            tx: None,
+            tx: Vec::new(),
         }
     }
 
     pub fn new_with_tx(
         protocol_data_input: Arc<Mutex<SharedData>>,
-        tx: mpsc::Sender<usize>,
+        tx: Vec<mpsc::Sender<usize>>,
     ) -> Self {
         SerialParser {
             frame_header: SerialFrameHeader::default(),
             protocol_data: protocol_data_input,
-            tx: Some(tx),
+            tx,
         }
     }
     /// Scan `read_buffer` for complete frames and write parsed data into shared state.
@@ -91,8 +91,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.game_state = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_GAME_STATE).ok();
+                        for t in &self.tx {
+                            t.send(IDX_GAME_STATE).ok();
                         }
                         parsed_any = true;
                     }
@@ -105,8 +105,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.game_result = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_GAME_RESULT).ok();
+                        for t in &self.tx {
+                            t.send(IDX_GAME_RESULT).ok();
                         }
                         parsed_any = true;
                     }
@@ -119,8 +119,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.site_event = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_SITE_EVENT).ok();
+                        for t in &self.tx {
+                            t.send(IDX_SITE_EVENT).ok();
                         }
                         parsed_any = true;
                     }
@@ -133,8 +133,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.dart_launch = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_DART_LAUNCH).ok();
+                        for t in &self.tx {
+                            t.send(IDX_DART_LAUNCH).ok();
                         }
                         parsed_any = true;
                     }
@@ -147,8 +147,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.radar_mark_process = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_RADAR_MARK_PROCESS).ok();
+                        for t in &self.tx {
+                            t.send(IDX_RADAR_MARK_PROCESS).ok();
                         }
                         parsed_any = true;
                     }
@@ -161,8 +161,8 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.radar_autonomous_decision_sync = v;
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
+                        for t in &self.tx {
+                            t.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
                         }
                         parsed_any = true;
                     }
@@ -186,8 +186,8 @@ impl SerialParser {
                             receiver_id: receiver,
                             subcontext_data: data[6..].to_vec(),
                         };
-                        if let Some(ref tx) = self.tx {
-                            tx.send(IDX_ROBOT_INTERACTION).ok();
+                        for t in &self.tx {
+                            t.send(IDX_ROBOT_INTERACTION).ok();
                         }
                         parsed_any = true;
                     }
