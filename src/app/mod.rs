@@ -245,12 +245,7 @@ impl RadarApp {
                     let shared = self.shared_reader.inner();
                     let stop = Arc::new(AtomicBool::new(false));
                     let pub_tx = self.zmq_pub.pub_tx.lock().unwrap().clone();
-                    let rx = serial_start_receiver(
-                        port,
-                        shared.clone(),
-                        pub_tx,
-                        stop.clone(),
-                    );
+                    let rx = serial_start_receiver(port, shared.clone(), pub_tx, stop.clone());
                     let tx = serial_start_transmitter(port_tx, shared.clone(), stop.clone());
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);

@@ -67,8 +67,7 @@ impl ZmqPubRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let (pub_tx, pub_rx) = std::sync::mpsc::channel();
         let pub_socket = crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
-        let handle =
-            crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx, stop.clone());
+        let handle = crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx, stop.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),

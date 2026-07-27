@@ -23,15 +23,13 @@ pub struct Serial {
 impl Serial {
     /// Open a serial port with the given config.
     pub fn new(config: SerialConfig) -> std::io::Result<Self> {
-        let mut port = SerialPort::open(config.port_name, |mut s: Settings| {
+        let port = SerialPort::open(config.port_name, |mut s: Settings| {
             s.set_raw();
             s.set_baud_rate(config.baud_rate)?;
             s.set_char_size(serial2::CharSize::Bits8);
             s.set_stop_bits(serial2::StopBits::One);
             Ok(s)
         })?;
-
-        port.set_read_timeout(Duration::from_millis(100))?;
 
         Ok(Self { serial_port: port })
     }
