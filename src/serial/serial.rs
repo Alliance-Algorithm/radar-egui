@@ -54,9 +54,11 @@ impl Serial {
         }
     }
 
-    /// Write bytes to the serial port. Silently ignores errors.
+    /// Write bytes to the serial port. Logs I/O errors.
     pub fn send_data(&self, data: &[u8]) {
-        let _ = self.serial_port.write_all(data);
+        if let Err(e) = self.serial_port.write_all(data) {
+            log::error!("Serial write error: {e}");
+        }
     }
     /// Clone the underlying serial port for concurrent read/write.
     pub fn clone_serial_port(&self) -> std::io::Result<Self> {
