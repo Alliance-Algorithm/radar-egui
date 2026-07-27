@@ -102,6 +102,7 @@ pub fn zmq_start_pub(
                     "stage_remain_time": lock.game_state.stage_remain_time,
                     "sync_timestamp": lock.game_state.sync_timestamp,
                 });
+                log::info!("ZMQ PUB GameState: {}", msg);
                 zmq_send(&pub_socket, &msg.to_string()).ok();
             }
             IDX_RADAR_MARK_PROCESS => {
@@ -123,9 +124,12 @@ pub fn zmq_start_pub(
                     "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
                     "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
                 });
+                log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
                 zmq_send(&pub_socket, &msg.to_string()).ok();
             }
-            _ => {}
+            _ => {
+                log::warn!("ZMQ PUB unknown idx: {}", idx);
+            }
         }
         drop(lock);
     })
