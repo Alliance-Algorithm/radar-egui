@@ -366,18 +366,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn app_clear_color_matches_theme_app_bg_light() {
+    fn app_clear_color_switches_between_light_and_dark() {
         theme::set_dark_mode(false);
-        let color = app_clear_color();
-        let expected = egui::Color32::from_rgb(0xf5, 0xf7, 0xfb).to_normalized_gamma_f32();
-        assert_eq!(color, expected);
-    }
+        let light = app_clear_color();
+        let expected_light = egui::Color32::from_rgb(0xf5, 0xf7, 0xfb).to_normalized_gamma_f32();
+        assert_eq!(light, expected_light);
 
-    #[test]
-    fn app_clear_color_matches_theme_app_bg_dark() {
         theme::set_dark_mode(true);
-        let color = app_clear_color();
-        let expected = egui::Color32::from_rgb(0x11, 0x11, 0x1b).to_normalized_gamma_f32();
-        assert_eq!(color, expected);
+        let dark = app_clear_color();
+        let expected_dark = egui::Color32::from_rgb(0x11, 0x11, 0x1b).to_normalized_gamma_f32();
+        assert_eq!(dark, expected_dark);
     }
 }
