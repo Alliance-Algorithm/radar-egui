@@ -6,10 +6,10 @@ use std::time::Duration;
 use serde_json::json;
 
 use radar_egui::shared_data::{
-    DartLaunchData, GameResultData, GameStateData, RadarMarkProcessData, SharedData,
-    SdrEnemyRobotBloodData, SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData,
-    SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData,
-    GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, RADAR_MARK_PROCESS_CMD_ID,
+    DartLaunchData, GameResultData, GameStateData, RadarMarkProcessData, SdrEnemyRobotBloodData,
+    SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData,
+    SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID,
+    IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, RADAR_MARK_PROCESS_CMD_ID,
 };
 use radar_egui::zmq::zmq::{zmq_send, zmq_start_pub, zmq_start_sub};
 
@@ -203,8 +203,7 @@ fn test_zmq_sub_sdr_populates_robot_interaction() {
 
     let guard = shared.lock().unwrap();
     assert_eq!(
-        guard.robot_interaction.subcontext_cmd_id,
-        0x0200,
+        guard.robot_interaction.subcontext_cmd_id, 0x0200,
         "subcontext_cmd_id"
     );
     let sub = &guard.robot_interaction.subcontext_data;
