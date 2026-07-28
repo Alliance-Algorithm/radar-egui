@@ -148,6 +148,10 @@ impl Default for RadarApp {
 
         let zmq_pub = ZmqPubRuntime::start("tcp://*:5557", shared.clone());
 
+        if let Ok(mut guard) = shared.lock() {
+            guard.radar_side = "red".to_string();
+        }
+
         let (video_feed, video_writer) = VideoFrameReader::new_pair();
         let video_runtime = VideoRuntime::new(video_writer);
 

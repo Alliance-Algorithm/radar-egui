@@ -167,31 +167,6 @@ impl SerialParser {
                         parsed_any = true;
                     }
                 }
-                ROBOT_INTERACTION_CMD_ID => {
-                    if data.len() >= 6 {
-                        let sub_cmd = u16::from_le_bytes([data[0], data[1]]);
-                        let sender = DeviceId::from(u16::from_le_bytes([data[2], data[3]]));
-                        let receiver = DeviceId::from(u16::from_le_bytes([data[4], data[5]]));
-                        log::info!(
-                            "RobotInteraction: sub_cmd=0x{:04X} sender={:?} receiver={:?} sub_data_len={}",
-                            sub_cmd, sender, receiver, data.len() - 6
-                        );
-                        let mut lock = self.protocol_data.lock().unwrap_or_else(|e| {
-                            log::error!("SharedData mutex poisoned in serial parser");
-                            e.into_inner()
-                        });
-                        lock.robot_interaction = RobotInteractionData {
-                            subcontext_cmd_id: sub_cmd,
-                            sender_id: sender,
-                            receiver_id: receiver,
-                            subcontext_data: data[6..].to_vec(),
-                        };
-                        for t in &self.tx {
-                            t.send(IDX_ROBOT_INTERACTION).ok();
-                        }
-                        parsed_any = true;
-                    }
-                }
                 _ => {}
             }
             index = package_end;

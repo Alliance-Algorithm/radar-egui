@@ -1,11 +1,12 @@
 use super::serial_package::serial_package;
 use super::serial_parser::SerialParser;
 use super::serialconfig::SerialConfig;
-use crate::shared_data::SharedData;
+use crate::robot_interaction_id::DeviceId;
+use crate::shared_data::{RobotInteractionData, SharedData};
 use crate::shared_data::{
     DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID,
-    SITE_EVENT_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+    RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID, SITE_EVENT_CMD_ID,
 };
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
@@ -18,6 +19,8 @@ use std::time::Duration;
 /// Serial port handle for raw byte I/O via `serial2`.
 pub struct Serial {
     serial_port: SerialPort,
+    #[cfg(test)]
+    pub sent: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
 impl Serial {
@@ -31,7 +34,11 @@ impl Serial {
             Ok(s)
         })?;
 
-        Ok(Self { serial_port: port })
+        Ok(Self {
+            serial_port: port,
+            #[cfg(test)]
+            sent: Arc::new(Mutex::new(Vec::new())),
+        })
     }
 
     /// Read raw bytes from the serial port (max 1024 bytes per call).
@@ -65,7 +72,17 @@ impl Serial {
     pub fn clone_serial_port(&self) -> std::io::Result<Self> {
         Ok(Self {
             serial_port: self.serial_port.try_clone()?,
+            #[cfg(test)]
+            sent: self.sent.clone(),
         })
+    }
+
+    #[cfg(test)]
+    pub fn from_port(serial_port: SerialPort) -> Self {
+        Self {
+            serial_port,
+            sent: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 }
 
@@ -129,8 +146,46 @@ pub fn serial_start_transmitter(
                 data.radar_autonomous_decision_sync.to_bytes(),
             ),
             6 => {
-                let b = data.robot_interaction.to_bytes();
-                (ROBOT_INTERACTION_CMD_ID, Ok(b))
+                let mut sub_data = data.robot_interaction.subcontext_data.clone();
+                sub_data.resize(112, 0);
+                let radar_id = if data.radar_side == "blue" {
+                    DeviceId::BlueRadar
+                } else {
+                    DeviceId::RedRadar
+                };
+                let targets: &[DeviceId] = if data.radar_side == "blue" {
+                    &[
+                        DeviceId::BlueHero,
+                        DeviceId::BlueInfantry3,
+                        DeviceId::BlueInfantry4,
+                        DeviceId::BlueSentry,
+                        DeviceId::BlueAerial,
+                    ]
+                } else {
+                    &[
+                        DeviceId::RedHero,
+                        DeviceId::RedInfantry3,
+                        DeviceId::RedInfantry4,
+                        DeviceId::RedSentry,
+                        DeviceId::RedAerial,
+                    ]
+                };
+                drop(data);
+                for &target in targets {
+                    let interaction = RobotInteractionData {
+                        subcontext_cmd_id: RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+                        sender_id: radar_id,
+                        receiver_id: target,
+                        subcontext_data: sub_data.clone(),
+                    };
+                    let data_bytes = interaction.to_bytes();
+                    let frame = serial_package(ROBOT_INTERACTION_CMD_ID, data_bytes);
+                    if let Ok(frame_bytes) = frame.to_bytes() {
+                        serial.send_data(&frame_bytes);
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                continue;
             }
             _ => {
                 log::warn!("Serial TX unknown idx: {}", idx);

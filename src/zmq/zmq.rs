@@ -1,3 +1,4 @@
+use deku::prelude::*;
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -5,10 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use zmq2;
 
+use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::{
-    SdrEnemyRobotBloodData, SdrEnemyRobotGainData, SdrEnemyRobotOverallStateData,
-    SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData, SdrJammingKeyData, SharedData,
-    GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS, RADAR_MARK_PROCESS_CMD_ID,
+    RobotInteractionData, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
+    SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
+    SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
+    RADAR_INTERACTION_SUBCONTEXT_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
@@ -157,6 +160,11 @@ pub fn zmq_start_sub(
         };
         // SDR
         if let Ok(msg) = serde_json::from_slice::<SdrMsg>(&bytes) {
+            let mut sub_data = vec![0x03]; // message_type as first byte
+            sub_data.extend_from_slice(&msg.blood.to_bytes().unwrap_or_default());
+            sub_data.extend_from_slice(&msg.ammo.to_bytes().unwrap_or_default());
+            sub_data.extend_from_slice(&msg.state.to_bytes().unwrap_or_default());
+            sub_data.extend_from_slice(&msg.gain.to_bytes().unwrap_or_default());
             if let Ok(mut guard) = shared.lock() {
                 guard.enemy_hero.x = msg.position.hero_x;
                 guard.enemy_hero.y = msg.position.hero_y;
@@ -175,6 +183,12 @@ pub fn zmq_start_sub(
                 guard.sdr_state = msg.state;
                 guard.sdr_gain = msg.gain;
                 guard.sdr_jamming_key = msg.key;
+                guard.robot_interaction = RobotInteractionData {
+                    subcontext_cmd_id: RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+                    sender_id: DeviceId::Unknown,
+                    receiver_id: DeviceId::Unknown,
+                    subcontext_data: sub_data,
+                };
             }
             continue;
         }
