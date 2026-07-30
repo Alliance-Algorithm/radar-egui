@@ -99,7 +99,9 @@ impl RadarApp {
                     .add_sized([ui.available_width(), 30.0], egui::Button::new("Stop"))
                     .clicked()
                 {
-                    self.process_control.stop_script();
+                    if let Err(error) = self.process_control.stop_script() {
+                        log::error!("Failed to stop laser: {}", error);
+                    }
                 }
             }
         });
@@ -123,7 +125,9 @@ impl RadarApp {
                             .add_sized([72.0, 24.0], egui::Button::new("Stop"))
                             .clicked()
                         {
-                            self.process_control.stop_sdr();
+                            if let Err(error) = self.process_control.stop_sdr() {
+                                log::error!("Failed to stop SDR: {}", error);
+                            }
                         }
                     } else if ui
                         .add_sized([72.0, 24.0], egui::Button::new("Start"))
@@ -151,7 +155,9 @@ impl RadarApp {
                             .add_sized([72.0, 24.0], egui::Button::new("Stop"))
                             .clicked()
                         {
-                            self.process_control.stop_radar();
+                            if let Err(error) = self.process_control.stop_radar() {
+                                log::error!("Failed to stop Radar: {}", error);
+                            }
                         }
                     } else {
                         egui::ComboBox::from_id_salt("radar_side")
@@ -224,7 +230,9 @@ impl RadarApp {
                     )
                     .clicked()
                 {
-                    self.process_control.send_laser_command("stream on");
+                    if let Err(error) = self.process_control.send_laser_command("stream on") {
+                        log::error!("Failed to enable laser stream: {}", error);
+                    }
                 }
                 if columns[1]
                     .add_sized(
@@ -233,7 +241,9 @@ impl RadarApp {
                     )
                     .clicked()
                 {
-                    self.process_control.send_laser_command("stream off");
+                    if let Err(error) = self.process_control.send_laser_command("stream off") {
+                        log::error!("Failed to disable laser stream: {}", error);
+                    }
                 }
             });
         });

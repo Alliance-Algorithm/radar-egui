@@ -10,6 +10,7 @@ use super::script_runner::{self, LaserScript, ScriptRunner, TeamSide};
 const START_ALL_DELAY: Duration = Duration::from_secs(1);
 const FIFO_RETRY_DELAY: Duration = Duration::from_millis(50);
 const FIFO_ATTEMPTS: u8 = 100;
+const DAEMON_PROBE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessComponent {
@@ -94,6 +95,7 @@ pub struct ProcessSnapshot {
     pub radar: ComponentSnapshot,
     pub sdr: ComponentSnapshot,
     pub laser: ComponentSnapshot,
+    pub daemon_available: bool,
     pub error: Option<String>,
 }
 
@@ -116,6 +118,7 @@ pub(crate) trait ProcessBackend: Send + 'static {
     fn stop_radar(&mut self);
     fn stop_sdr(&mut self);
     fn stop_laser(&mut self);
+    fn daemon_alive(&mut self) -> bool;
 }
 
 impl ProcessBackend for ScriptRunner {
@@ -147,6 +150,10 @@ impl ProcessBackend for ScriptRunner {
 
     fn stop_laser(&mut self) {
         ScriptRunner::stop(self);
+    }
+
+    fn daemon_alive(&mut self) -> bool {
+        script_runner::daemon_alive()
     }
 }
 
@@ -244,11 +251,16 @@ async fn run_process_actor<B: ProcessBackend>(
     let mut failed: Option<FailedSequence> = None;
     let mut laser_configuration: Option<LaserConfiguration> = None;
     let mut deadline: Option<tokio::time::Instant> = None;
+    let mut daemon_probe = tokio::time::interval(DAEMON_PROBE_INTERVAL);
 
     loop {
         let command = if let Some(at) = deadline {
             tokio::select! {
                 command = command_rx.recv() => command,
+                _ = daemon_probe.tick() => {
+                    publish_daemon_availability(&mut backend, &mut snapshot, &snapshot_tx);
+                    continue;
+                }
                 () = tokio::time::sleep_until(at) => {
                     deadline = None;
                     if sequence.is_some() {
@@ -274,7 +286,13 @@ async fn run_process_actor<B: ProcessBackend>(
                 }
             }
         } else {
-            command_rx.recv().await
+            tokio::select! {
+                command = command_rx.recv() => command,
+                _ = daemon_probe.tick() => {
+                    publish_daemon_availability(&mut backend, &mut snapshot, &snapshot_tx);
+                    continue;
+                }
+            }
         };
 
         let Some(command) = command else {
@@ -288,9 +306,12 @@ async fn run_process_actor<B: ProcessBackend>(
                 record,
                 laser_auto,
             } => {
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 sequence = Some(Sequence {
                     command: StartAllOptions {
                         side,
@@ -330,12 +351,15 @@ async fn run_process_actor<B: ProcessBackend>(
                 }
             }
             ProcessCommand::StartRadar(side) => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 snapshot.phase = ProcessPhase::StartingRadar;
                 snapshot.error = None;
+                snapshot.radar = ComponentSnapshot::default();
                 publish(&snapshot_tx, &snapshot);
                 finish_component(
                     backend.start_radar(side),
@@ -345,12 +369,15 @@ async fn run_process_actor<B: ProcessBackend>(
                 );
             }
             ProcessCommand::StartSdr(side) => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 snapshot.phase = ProcessPhase::StartingSdr;
                 snapshot.error = None;
+                snapshot.sdr = ComponentSnapshot::default();
                 publish(&snapshot_tx, &snapshot);
                 finish_component(
                     backend.start_sdr(side.enemy()),
@@ -360,12 +387,15 @@ async fn run_process_actor<B: ProcessBackend>(
                 );
             }
             ProcessCommand::StartLaser(options) => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 snapshot.phase = ProcessPhase::StartingLaser;
                 snapshot.error = None;
+                snapshot.laser = ComponentSnapshot::default();
                 publish(&snapshot_tx, &snapshot);
                 match backend.start_laser(options.script) {
                     Ok(()) => {
@@ -402,40 +432,48 @@ async fn run_process_actor<B: ProcessBackend>(
                 }
             }
             ProcessCommand::StopRadar => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 backend.stop_radar();
                 snapshot.radar = ComponentSnapshot::default();
                 snapshot.phase = ProcessPhase::Idle;
                 publish(&snapshot_tx, &snapshot);
             }
             ProcessCommand::StopSdr => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 backend.stop_sdr();
                 snapshot.sdr = ComponentSnapshot::default();
                 snapshot.phase = ProcessPhase::Idle;
                 publish(&snapshot_tx, &snapshot);
             }
             ProcessCommand::StopLaser => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 backend.stop_laser();
                 snapshot.laser = ComponentSnapshot::default();
                 snapshot.phase = ProcessPhase::Idle;
                 publish(&snapshot_tx, &snapshot);
             }
             ProcessCommand::StopAll => {
-                sequence = None;
-                failed = None;
-                laser_configuration = None;
-                deadline = None;
+                reset_pending(
+                    &mut sequence,
+                    &mut failed,
+                    &mut laser_configuration,
+                    &mut deadline,
+                );
                 stop_all(&mut backend, &mut snapshot, &snapshot_tx);
             }
             ProcessCommand::Shutdown => {
@@ -443,6 +481,30 @@ async fn run_process_actor<B: ProcessBackend>(
                 break;
             }
         }
+    }
+}
+
+fn reset_pending(
+    sequence: &mut Option<Sequence>,
+    failed: &mut Option<FailedSequence>,
+    laser_configuration: &mut Option<LaserConfiguration>,
+    deadline: &mut Option<tokio::time::Instant>,
+) {
+    *sequence = None;
+    *failed = None;
+    *laser_configuration = None;
+    *deadline = None;
+}
+
+fn publish_daemon_availability<B: ProcessBackend>(
+    backend: &mut B,
+    snapshot: &mut ProcessSnapshot,
+    snapshot_tx: &watch::Sender<ProcessSnapshot>,
+) {
+    let available = backend.daemon_alive();
+    if snapshot.daemon_available != available {
+        snapshot.daemon_available = available;
+        publish(snapshot_tx, snapshot);
     }
 }
 
@@ -491,6 +553,7 @@ fn advance_sequence<B: ProcessBackend>(
         SequenceStep::StartRadar => {
             snapshot.phase = ProcessPhase::StartingRadar;
             snapshot.error = None;
+            snapshot.radar = ComponentSnapshot::default();
             publish(snapshot_tx, snapshot);
             match backend.start_radar(current.command.side) {
                 Ok(()) => {
@@ -526,6 +589,7 @@ fn advance_sequence<B: ProcessBackend>(
         }
         SequenceStep::StartSdr => {
             snapshot.phase = ProcessPhase::StartingSdr;
+            snapshot.sdr = ComponentSnapshot::default();
             publish(snapshot_tx, snapshot);
             match backend.start_sdr(current.command.side.enemy()) {
                 Ok(()) => {
@@ -561,6 +625,7 @@ fn advance_sequence<B: ProcessBackend>(
         }
         SequenceStep::StartLaser => {
             snapshot.phase = ProcessPhase::StartingLaser;
+            snapshot.laser = ComponentSnapshot::default();
             publish(snapshot_tx, snapshot);
             match backend.start_laser(LaserScript::Competition) {
                 Ok(()) => {
@@ -674,13 +739,17 @@ fn stop_all<B: ProcessBackend>(
     snapshot: &mut ProcessSnapshot,
     snapshot_tx: &watch::Sender<ProcessSnapshot>,
 ) {
+    let daemon_available = snapshot.daemon_available;
     snapshot.phase = ProcessPhase::Stopping;
     snapshot.error = None;
     publish(snapshot_tx, snapshot);
     backend.stop_laser();
     backend.stop_sdr();
     backend.stop_radar();
-    *snapshot = ProcessSnapshot::default();
+    *snapshot = ProcessSnapshot {
+        daemon_available,
+        ..ProcessSnapshot::default()
+    };
     publish(snapshot_tx, snapshot);
 }
 
@@ -701,7 +770,10 @@ mod tests {
     struct FakeBackend {
         events: Arc<Mutex<Vec<String>>>,
         fail_once: Option<ProcessComponent>,
+        fail_on_attempt: Option<(ProcessComponent, u8)>,
+        start_attempts: [u8; 3],
         configure_failures: u8,
+        daemon_available: bool,
     }
 
     impl FakeBackend {
@@ -719,11 +791,33 @@ mod tests {
             }
         }
 
+        fn fail_on_attempt(component: ProcessComponent, attempt: u8) -> Self {
+            Self {
+                fail_on_attempt: Some((component, attempt)),
+                ..Self::default()
+            }
+        }
+
+        fn with_daemon_available() -> Self {
+            Self {
+                daemon_available: true,
+                ..Self::default()
+            }
+        }
+
         fn event(&mut self, component: ProcessComponent, event: String) -> io::Result<()> {
             self.events.lock().unwrap().push(event);
+            let index = match component {
+                ProcessComponent::Radar => 0,
+                ProcessComponent::Sdr => 1,
+                ProcessComponent::Laser => 2,
+            };
+            self.start_attempts[index] += 1;
             if self.fail_once == Some(component) {
                 self.fail_once = None;
                 Err(io::Error::other("configured failure"))
+            } else if self.fail_on_attempt == Some((component, self.start_attempts[index])) {
+                Err(io::Error::other("configured replacement failure"))
             } else {
                 Ok(())
             }
@@ -770,6 +864,10 @@ mod tests {
 
         fn stop_laser(&mut self) {
             self.events.lock().unwrap().push("stop:laser".into());
+        }
+
+        fn daemon_alive(&mut self) -> bool {
+            self.daemon_available
         }
     }
 
@@ -894,5 +992,61 @@ mod tests {
                 "fifo:enemy blue,stream on,record off",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn daemon_availability_is_published_by_the_actor() {
+        let (runtime, _) = test_runtime(FakeBackend::with_daemon_available(), Duration::ZERO);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !runtime.snapshot().daemon_available {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timed out waiting for daemon availability");
+    }
+
+    #[tokio::test]
+    async fn failed_laser_replacement_clears_stale_managed_state() {
+        let backend = FakeBackend::fail_on_attempt(ProcessComponent::Laser, 2);
+        let (runtime, _) = test_runtime(backend, Duration::ZERO);
+        let options = StartLaserOptions {
+            script: LaserScript::Competition,
+            side: TeamSide::Red,
+            stream: false,
+            record: false,
+            laser_auto: false,
+            configure: false,
+        };
+        runtime.send(ProcessCommand::StartLaser(options)).unwrap();
+        wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
+
+        runtime.send(ProcessCommand::StartLaser(options)).unwrap();
+        wait_for_failed(&runtime, ProcessComponent::Laser, Duration::from_secs(1)).await;
+
+        assert_eq!(runtime.snapshot().laser, ComponentSnapshot::default());
+    }
+
+    #[tokio::test]
+    async fn shutdown_interrupts_start_all_wait_and_joins_promptly() {
+        let (runtime, events) = test_runtime(FakeBackend::default(), Duration::from_secs(30));
+        runtime.send(start_all_red()).unwrap();
+        wait_for_phase(
+            &runtime,
+            ProcessPhase::WaitingForRadar,
+            Duration::from_secs(1),
+        )
+        .await;
+
+        let started = std::time::Instant::now();
+        drop(runtime);
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(events.lock().unwrap().ends_with(&[
+            "stop:laser".into(),
+            "stop:sdr".into(),
+            "stop:radar".into(),
+        ]));
     }
 }

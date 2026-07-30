@@ -2,7 +2,7 @@ use super::process_runtime::{
     ProcessCommand, ProcessRuntime, ProcessSendError, ProcessSnapshot, StartAllOptions,
     StartLaserOptions,
 };
-use super::script_runner::{self, LaserScript, TeamSide};
+use super::script_runner::{LaserScript, TeamSide};
 
 pub enum TeamSideInput<'a> {
     Side(TeamSide),
@@ -91,7 +91,7 @@ impl ProcessControl {
     }
 
     pub fn daemon_alive(&self) -> bool {
-        script_runner::daemon_alive()
+        self.snapshot().daemon_available
     }
 
     pub fn is_sdr_running(&self) -> bool {
@@ -151,16 +151,16 @@ impl ProcessControl {
         })
     }
 
-    pub fn stop_script(&self) {
-        let _ = self.runtime.send(ProcessCommand::StopLaser);
+    pub fn stop_script(&self) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::StopLaser)
     }
 
-    pub fn stop_sdr(&self) {
-        let _ = self.runtime.send(ProcessCommand::StopSdr);
+    pub fn stop_sdr(&self) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::StopSdr)
     }
 
-    pub fn stop_radar(&self) {
-        let _ = self.runtime.send(ProcessCommand::StopRadar);
+    pub fn stop_radar(&self) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::StopRadar)
     }
 
     pub fn schedule_start_all(
@@ -184,10 +184,9 @@ impl ProcessControl {
         })
     }
 
-    pub fn send_laser_command(&self, command: &str) {
-        let _ = self
-            .runtime
-            .send(ProcessCommand::SendLaserCommand(command.to_owned()));
+    pub fn send_laser_command(&self, command: &str) -> Result<(), ProcessSendError> {
+        self.runtime
+            .send(ProcessCommand::SendLaserCommand(command.to_owned()))
     }
 }
 
