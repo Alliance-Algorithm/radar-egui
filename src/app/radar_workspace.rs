@@ -1,8 +1,117 @@
 use super::chrome::{status_chip, white_card};
 use super::shell::{radar_strip_height, SIDE_RADAR, STAGE_GAP};
 use super::RadarApp;
+use crate::pointcloud::pcd_viewer::PcdViewerStatus;
 use crate::theme;
 use crate::ui_layout::{inset_rect, STAGE_PAD};
+
+struct PcdStatusDetails {
+    phase: &'static str,
+    path: String,
+    detail: Option<String>,
+    failed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PcdStatusStyle {
+    Neutral,
+    Progress,
+    Success,
+    Error,
+}
+
+fn pcd_status_style(status: &PcdViewerStatus) -> PcdStatusStyle {
+    match status {
+        PcdViewerStatus::Idle => PcdStatusStyle::Neutral,
+        PcdViewerStatus::Loading { .. } | PcdViewerStatus::Launching { .. } => {
+            PcdStatusStyle::Progress
+        }
+        PcdViewerStatus::Ready { .. } => PcdStatusStyle::Success,
+        PcdViewerStatus::Failed { .. } => PcdStatusStyle::Error,
+    }
+}
+
+fn pcd_status_chip(ui: &mut egui::Ui, status: &PcdViewerStatus, label: &str) {
+    let (fill, text) = match pcd_status_style(status) {
+        PcdStatusStyle::Neutral => (theme::card_bg_muted(), theme::text_muted()),
+        PcdStatusStyle::Progress => (theme::card_bg_muted(), theme::BLUE),
+        PcdStatusStyle::Success => (theme::success_bg(), theme::GREEN),
+        PcdStatusStyle::Error => (theme::error_bg(), theme::RED),
+    };
+    egui::Frame::new()
+        .fill(fill)
+        .corner_radius(egui::CornerRadius::same(255))
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(format!("● {label}"))
+                    .color(text)
+                    .size(12.0),
+            );
+        });
+}
+
+fn pcd_action_enabled(busy: bool, feature_enabled: bool) -> bool {
+    feature_enabled && !busy
+}
+
+fn format_load_result(result: &crate::pointcloud::pcd_viewer::PcdLoadResult) -> String {
+    let stats = result.stats;
+    format!(
+        "{} · {} valid / {} declared · {} skipped · {:.3} s",
+        stats.encoding,
+        stats.valid_points,
+        stats.declared_points,
+        stats.skipped_points,
+        result.elapsed.as_secs_f64()
+    )
+}
+
+fn pcd_status_details(status: &PcdViewerStatus) -> PcdStatusDetails {
+    match status {
+        PcdViewerStatus::Idle => PcdStatusDetails {
+            phase: "Idle",
+            path: "Select a .pcd file to open in Rerun".to_owned(),
+            detail: None,
+            failed: false,
+        },
+        PcdViewerStatus::Loading {
+            path,
+            loaded_points,
+            total_points,
+        } => PcdStatusDetails {
+            phase: "Loading",
+            path: path.display().to_string(),
+            detail: Some(format!("{loaded_points} / {total_points} points")),
+            failed: false,
+        },
+        PcdViewerStatus::Launching { path, result } => PcdStatusDetails {
+            phase: "Launching",
+            path: path.display().to_string(),
+            detail: Some(format_load_result(result)),
+            failed: false,
+        },
+        PcdViewerStatus::Ready { path, result } => PcdStatusDetails {
+            phase: "Ready",
+            path: path.display().to_string(),
+            detail: Some(format_load_result(result)),
+            failed: false,
+        },
+        PcdViewerStatus::Failed {
+            path,
+            message,
+            loaded,
+        } => PcdStatusDetails {
+            phase: "Failed",
+            path: path.display().to_string(),
+            detail: Some(match loaded {
+                Some(result) => format!("{message}\n{}", format_load_result(result)),
+                None => message.clone(),
+            }),
+            failed: true,
+        },
+    }
+}
 
 impl RadarApp {
     pub(super) fn show_radar_workspace(&mut self, ctx: &egui::Context) {
@@ -198,28 +307,221 @@ impl RadarApp {
                 });
         });
         ui.add_space(12.0);
-        white_card(ui, "Rerun 控制", |ui| {
-            ui.label(
-                egui::RichText::new("当前架构：外部进程 + gRPC")
-                    .color(theme::text_muted())
-                    .size(12.0),
-            );
+        white_card(ui, "Offline PCD", |ui| {
+            let status = self.pcd_viewer.status();
+            let details = pcd_status_details(status);
+            pcd_status_chip(ui, status, details.phase);
             ui.add_space(8.0);
             ui.label(
-                egui::RichText::new("cargo run --release --features rerun")
-                    .color(theme::text_faint())
-                    .size(11.0),
+                egui::RichText::new(details.path)
+                    .color(if details.failed {
+                        theme::RED
+                    } else {
+                        theme::text_muted()
+                    })
+                    .size(12.0),
             );
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("另开终端: rerun")
-                    .color(theme::text_faint())
+            if let Some(detail) = details.detail {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(detail)
+                        .color(if details.failed {
+                            theme::RED
+                        } else {
+                            theme::text_faint()
+                        })
+                        .size(11.0),
+                );
+            }
+            ui.add_space(10.0);
+
+            let enabled = pcd_action_enabled(self.pcd_viewer.is_busy(), cfg!(feature = "rerun"));
+            if ui
+                .add_enabled(enabled, egui::Button::new("Open PCD in Rerun"))
+                .clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("PCD point cloud", &["pcd"])
+                    .pick_file()
+                {
+                    self.pcd_viewer.start(path);
+                }
+            }
+
+            #[cfg(not(feature = "rerun"))]
+            {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(
+                        "Native PCD viewing requires the `rerun` feature. Run with --features rerun.",
+                    )
+                    .color(theme::text_muted())
                     .size(11.0),
-            );
+                );
+            }
         });
         ui.add_space(12.0);
         white_card(ui, "状态", |ui| {
             self.show_pointcloud_status(ui);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pcd_action_enabled, pcd_status_details, pcd_status_style, PcdStatusStyle};
+    use crate::pointcloud::pcd_loader::PcdEncoding;
+    use crate::pointcloud::pcd_viewer::{PcdLoadResult, PcdLoadStats, PcdViewerStatus};
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    fn load_result() -> PcdLoadResult {
+        PcdLoadResult {
+            stats: PcdLoadStats {
+                encoding: PcdEncoding::Ascii,
+                valid_points: 98,
+                skipped_points: 2,
+                declared_points: 100,
+            },
+            elapsed: Duration::from_millis(1250),
+        }
+    }
+
+    #[test]
+    fn pcd_action_is_disabled_while_the_runtime_is_busy() {
+        assert!(!pcd_action_enabled(true, true));
+        assert!(!pcd_action_enabled(true, false));
+        assert!(!pcd_action_enabled(false, false));
+        assert!(pcd_action_enabled(false, true));
+    }
+
+    #[test]
+    fn pcd_status_style_classifies_every_runtime_phase() {
+        let cases = [
+            (PcdViewerStatus::Idle, PcdStatusStyle::Neutral),
+            (
+                PcdViewerStatus::Loading {
+                    path: PathBuf::from("scan.pcd"),
+                    loaded_points: 25,
+                    total_points: 100,
+                },
+                PcdStatusStyle::Progress,
+            ),
+            (
+                PcdViewerStatus::Launching {
+                    path: PathBuf::from("scan.pcd"),
+                    result: load_result(),
+                },
+                PcdStatusStyle::Progress,
+            ),
+            (
+                PcdViewerStatus::Ready {
+                    path: PathBuf::from("scan.pcd"),
+                    result: load_result(),
+                },
+                PcdStatusStyle::Success,
+            ),
+            (
+                PcdViewerStatus::Failed {
+                    path: PathBuf::from("broken.pcd"),
+                    message: "invalid header".to_owned(),
+                    loaded: None,
+                },
+                PcdStatusStyle::Error,
+            ),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(pcd_status_style(&status), expected);
+        }
+    }
+
+    #[test]
+    fn pcd_status_details_cover_every_runtime_phase() {
+        let cases = [
+            (
+                PcdViewerStatus::Idle,
+                ("Idle", "Select a .pcd file to open in Rerun", None, false),
+            ),
+            (
+                PcdViewerStatus::Loading {
+                    path: PathBuf::from("scan.pcd"),
+                    loaded_points: 25,
+                    total_points: 100,
+                },
+                (
+                    "Loading",
+                    "scan.pcd",
+                    Some("25 / 100 points".to_owned()),
+                    false,
+                ),
+            ),
+            (
+                PcdViewerStatus::Launching {
+                    path: PathBuf::from("scan.pcd"),
+                    result: load_result(),
+                },
+                (
+                    "Launching",
+                    "scan.pcd",
+                    Some("ASCII · 98 valid / 100 declared · 2 skipped · 1.250 s".to_owned()),
+                    false,
+                ),
+            ),
+            (
+                PcdViewerStatus::Ready {
+                    path: PathBuf::from("scan.pcd"),
+                    result: load_result(),
+                },
+                (
+                    "Ready",
+                    "scan.pcd",
+                    Some("ASCII · 98 valid / 100 declared · 2 skipped · 1.250 s".to_owned()),
+                    false,
+                ),
+            ),
+            (
+                PcdViewerStatus::Failed {
+                    path: PathBuf::from("broken.pcd"),
+                    message: "invalid header".to_owned(),
+                    loaded: None,
+                },
+                (
+                    "Failed",
+                    "broken.pcd",
+                    Some("invalid header".to_owned()),
+                    true,
+                ),
+            ),
+            (
+                PcdViewerStatus::Failed {
+                    path: PathBuf::from("scan.pcd"),
+                    message: "viewer unavailable".to_owned(),
+                    loaded: Some(load_result()),
+                },
+                (
+                    "Failed",
+                    "scan.pcd",
+                    Some(
+                        "viewer unavailable\nASCII · 98 valid / 100 declared · 2 skipped · 1.250 s"
+                            .to_owned(),
+                    ),
+                    true,
+                ),
+            ),
+        ];
+
+        for (status, expected) in cases {
+            let actual = pcd_status_details(&status);
+            assert_eq!(
+                (
+                    actual.phase,
+                    actual.path.as_str(),
+                    actual.detail,
+                    actual.failed
+                ),
+                expected
+            );
+        }
     }
 }

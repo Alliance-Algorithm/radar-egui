@@ -4,6 +4,7 @@ use std::sync::Once;
 
 use self::video_texture::VideoTextureCache;
 use crate::laser::video::VideoFrameReader;
+use crate::pointcloud::pcd_viewer::PcdViewerRuntime;
 use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
 use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
@@ -107,6 +108,7 @@ pub struct RadarApp {
     pointcloud_feed: PointCloudFrameReader,
     pointcloud_runtime: PointCloudRuntime,
     pointcloud_last_seq: u32,
+    pcd_viewer: PcdViewerRuntime,
 
     process_control: ProcessControl,
     camera_device: String,
@@ -191,6 +193,7 @@ impl Default for RadarApp {
             pointcloud_feed,
             pointcloud_runtime,
             pointcloud_last_seq: 0,
+            pcd_viewer: PcdViewerRuntime::new(),
             process_control: ProcessControl::new(),
             camera_device: "/dev/laser_capture".to_string(),
             enemy_color: EnemyColor::Auto,
@@ -337,6 +340,7 @@ impl eframe::App for RadarApp {
         self.update_connection_status(&snapshot);
         self.apply_theme(ctx);
         self.process_control.trigger_pending_start_all();
+        self.pcd_viewer.poll();
         if self.active_tab == ActiveTab::Radar {
             self.update_pointcloud();
         }
