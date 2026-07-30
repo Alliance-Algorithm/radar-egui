@@ -11,6 +11,7 @@ use crate::shared_data::{
     RobotInteractionData, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
     SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
     SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
+    IDX_RADAR_AUTONOMOUS_DECISION_SYNC, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
     RADAR_INTERACTION_SUBCONTEXT_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
 };
 
@@ -136,6 +137,17 @@ pub fn zmq_start_pub(
                     "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
                 });
                 log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
+                zmq_send(&pub_socket, &msg.to_string()).ok();
+            }
+            IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
+                let msg = serde_json::json!({
+                    "cmd_id": RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+                    "double_weakness_chance": lock.radar_autonomous_decision_sync.double_weakness_chance,
+                    "double_weakness_active": lock.radar_autonomous_decision_sync.double_weakness_active,
+                    "encryption_rank": lock.radar_autonomous_decision_sync.encryption_rank,
+                    "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
+                });
+                log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
                 zmq_send(&pub_socket, &msg.to_string()).ok();
             }
             _ => {
