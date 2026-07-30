@@ -5,7 +5,6 @@ use super::script_runner::{self, LaserScript, ScriptRunner};
 struct PendingStartAll {
     launch_at: std::time::Instant,
     laser_script: LaserScript,
-    camera_device: String,
     enemy_cmd: String,
     stream_cmd: String,
     record_cmd: String,
@@ -57,21 +56,21 @@ impl ProcessControl {
         });
     }
 
-    pub fn start_script(&mut self, script: LaserScript, camera_device: &str) -> io::Result<()> {
+    pub fn start_script(&mut self, script: LaserScript, _camera_device: &str) -> io::Result<()> {
         self.cancel_pending_start_all();
-        self.script_runner.start(script, camera_device)
+        self.script_runner.start(script)
     }
 
     pub fn start_script_with_daemon_config(
         &mut self,
         script: LaserScript,
-        camera_device: &str,
+        _camera_device: &str,
         enemy_cmd: String,
         stream_cmd: String,
         record_cmd: String,
     ) -> io::Result<()> {
         self.cancel_pending_start_all();
-        self.script_runner.start(script, camera_device)?;
+        self.script_runner.start(script)?;
 
         if script.is_daemon() {
             Self::spawn_start_all_commands(enemy_cmd, stream_cmd, record_cmd);
@@ -106,7 +105,7 @@ impl ProcessControl {
     pub fn schedule_start_all(
         &mut self,
         sdr_enemy_color: &str,
-        camera_device: &str,
+        _camera_device: &str,
         enemy_cmd: String,
         stream_cmd: String,
         record_cmd: String,
@@ -116,7 +115,6 @@ impl ProcessControl {
         self.pending_start_all = Some(PendingStartAll {
             launch_at: std::time::Instant::now() + std::time::Duration::from_secs(1),
             laser_script: LaserScript::Competition,
-            camera_device: camera_device.to_owned(),
             enemy_cmd,
             stream_cmd,
             record_cmd,
@@ -143,10 +141,7 @@ impl ProcessControl {
             return;
         }
 
-        if let Err(e) = self
-            .script_runner
-            .start(pending.laser_script, &pending.camera_device)
-        {
+        if let Err(e) = self.script_runner.start(pending.laser_script) {
             log::error!("Start All failed: {}", e);
             return;
         }

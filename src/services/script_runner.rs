@@ -9,16 +9,46 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-const LASER_GUIDANCE_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
+const RADAR_ROOT_ENV: &str = "ALLIANCE_RADAR_LOCATION_LIDAR_ROOT";
+const LASER_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
 
-/// ROS2 radar launch 所在仓库根目录
-const RADAR_REPO: &str = "../alliance_radar_location_lidar";
-/// radar launch 的 ROS2 workspace
-const RADAR_WS: &str = "ros_ws";
-
 // ── LaserScript ──────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TeamSide {
+    #[default]
+    Red,
+    Blue,
+}
+
+impl TeamSide {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Red => "red",
+            Self::Blue => "blue",
+        }
+    }
+
+    pub fn enemy(self) -> Self {
+        match self {
+            Self::Red => Self::Blue,
+            Self::Blue => Self::Red,
+        }
+    }
+
+    pub fn laser_enemy_command(self, laser_auto: bool) -> &'static str {
+        if laser_auto {
+            "enemy auto"
+        } else {
+            match self.enemy() {
+                Self::Red => "enemy red",
+                Self::Blue => "enemy blue",
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LaserScript {
@@ -38,10 +68,10 @@ impl LaserScript {
         }
     }
 
-    fn script_name(&self) -> &'static str {
+    pub fn script_name(self) -> &'static str {
         match self {
-            LaserScript::Competition => "competition",
-            LaserScript::Preview => "preview",
+            LaserScript::Competition => "competition-laser",
+            LaserScript::Preview => "preview-laser",
             LaserScript::Stream => "stream",
             LaserScript::Record => "record",
         }
@@ -81,17 +111,15 @@ impl ScriptRunner {
     pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
         self.stop_radar();
 
-        let repo = PathBuf::from(RADAR_REPO);
-        let ws = repo.join(RADAR_WS);
+        let repo = resolve_radar_root()?;
         let cmd = format!(
-            "source /opt/ros/jazzy/setup.zsh && \
-             source {}/install/setup.zsh && \
-             ros2 launch radar_bringup competition.launch.py side:={side}",
-            ws.display()
+            "source /opt/ros/jazzy/setup.bash && \
+             source ros_ws/install/setup.bash && \
+             exec ros2 launch radar_bringup competition.launch.py side:={side}"
         );
 
-        let child = Command::new("zsh")
-            .args(["-c", &cmd])
+        let child = Command::new("bash")
+            .args(["-lc", &cmd])
             .current_dir(&repo)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -117,7 +145,7 @@ impl ScriptRunner {
 
     // ── Laser ────────────────────────────────────────────────────────────────
 
-    pub fn start(&mut self, script: LaserScript, device: &str) -> io::Result<()> {
+    pub fn start(&mut self, script: LaserScript) -> io::Result<()> {
         // 拿走旧状态，后台清理（不阻塞 UI）
         let old_active = self.active.take();
         let old_child = self.child.take();
@@ -137,11 +165,10 @@ impl ScriptRunner {
             });
         }
 
-        let laser_root = laser_guidance_root()?;
+        let laser_root = resolve_laser_root()?;
         let path = laser_root.join(".script").join(script.script_name());
         let child = Command::new(&path)
             .current_dir(&laser_root)
-            .env("LASER_CAMERA_DEVICE", device)
             .env("LASER_HEADLESS", "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -242,44 +269,59 @@ impl Drop for ScriptRunner {
 
 // ── 静态辅助函数 ────────────────────────────────────────────────────────────
 
-fn laser_guidance_root() -> io::Result<PathBuf> {
-    if let Some(root) = std::env::var_os(LASER_GUIDANCE_ROOT_ENV) {
+pub fn resolve_radar_root() -> io::Result<PathBuf> {
+    if let Some(root) = std::env::var_os(RADAR_ROOT_ENV) {
+        return valid_radar_root(PathBuf::from(root));
+    }
+
+    valid_radar_root(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../alliance_radar_location_lidar"),
+    )
+}
+
+pub fn resolve_laser_root() -> io::Result<PathBuf> {
+    if let Some(root) = std::env::var_os(LASER_ROOT_ENV) {
         return valid_laser_root(PathBuf::from(root));
     }
 
-    let mut candidates = Vec::new();
-    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
-        let manifest_dir = Path::new(manifest_dir);
-        candidates.push(manifest_dir.join("../../laser_guidance"));
-        candidates.push(manifest_dir.join("../laser_guidance"));
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("../../laser_guidance"));
-        candidates.push(cwd.join("../laser_guidance"));
-    }
+    valid_laser_root(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../laser_guidance"))
+}
 
-    for candidate in candidates {
-        if let Ok(root) = valid_laser_root(candidate) {
-            return Ok(root);
-        }
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!(
-            "laser_guidance root not found; set {LASER_GUIDANCE_ROOT_ENV} to the laser_guidance repo"
-        ),
-    ))
+fn valid_radar_root(path: PathBuf) -> io::Result<PathBuf> {
+    const REQUIRED: [&str; 2] = [
+        "ros_ws/install/setup.bash",
+        "ros_ws/src/radar_bringup/launch/competition.launch.py",
+    ];
+    valid_root(path, &REQUIRED, "Radar workspace")
 }
 
 fn valid_laser_root(path: PathBuf) -> io::Result<PathBuf> {
-    let script_dir = path.join(".script");
-    if script_dir.join("competition").is_file() {
-        path.canonicalize()
+    const REQUIRED: [&str; 4] = [
+        ".script/competition-laser",
+        ".script/preview-laser",
+        ".script/stream",
+        ".script/record",
+    ];
+    valid_root(path, &REQUIRED, "laser_guidance scripts")
+}
+
+fn valid_root(path: PathBuf, required: &[&str], contract: &str) -> io::Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    let missing: Vec<_> = required
+        .iter()
+        .copied()
+        .filter(|relative| !absolute.join(relative).is_file())
+        .collect();
+    if missing.is_empty() {
+        absolute.canonicalize()
     } else {
         Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{} does not contain .script/competition", path.display()),
+            format!(
+                "{} does not satisfy {contract}; missing {}",
+                absolute.display(),
+                missing.join(", ")
+            ),
         ))
     }
 }
@@ -309,6 +351,62 @@ pub fn send_fifo(cmd: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "radar-egui-{name}-{}-{timestamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn team_side_maps_our_and_enemy_colors() {
+        assert_eq!(TeamSide::Red.as_str(), "red");
+        assert_eq!(TeamSide::Red.enemy(), TeamSide::Blue);
+        assert_eq!(TeamSide::Blue.enemy(), TeamSide::Red);
+        assert_eq!(TeamSide::Red.laser_enemy_command(false), "enemy blue");
+        assert_eq!(TeamSide::Blue.laser_enemy_command(false), "enemy red");
+        assert_eq!(TeamSide::Red.laser_enemy_command(true), "enemy auto");
+    }
+
+    #[test]
+    fn laser_scripts_match_current_repository_contract() {
+        assert_eq!(LaserScript::Competition.script_name(), "competition-laser");
+        assert_eq!(LaserScript::Preview.script_name(), "preview-laser");
+        assert_eq!(LaserScript::Stream.script_name(), "stream");
+        assert_eq!(LaserScript::Record.script_name(), "record");
+    }
+
+    #[test]
+    fn valid_laser_root_requires_current_scripts() {
+        let temp = temp_test_dir("laser-root");
+        std::fs::create_dir_all(temp.join(".script")).unwrap();
+        std::fs::write(temp.join(".script/competition-laser"), "").unwrap();
+        std::fs::write(temp.join(".script/preview-laser"), "").unwrap();
+        std::fs::write(temp.join(".script/stream"), "").unwrap();
+        std::fs::write(temp.join(".script/record"), "").unwrap();
+        assert!(valid_laser_root(temp.clone()).is_ok());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn valid_radar_root_requires_workspace_contract() {
+        let temp = temp_test_dir("radar-root");
+        std::fs::create_dir_all(temp.join("ros_ws/install")).unwrap();
+        std::fs::create_dir_all(temp.join("ros_ws/src/radar_bringup/launch")).unwrap();
+        std::fs::write(temp.join("ros_ws/install/setup.bash"), "").unwrap();
+        std::fs::write(
+            temp.join("ros_ws/src/radar_bringup/launch/competition.launch.py"),
+            "",
+        )
+        .unwrap();
+        assert!(valid_radar_root(temp.clone()).is_ok());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
 
     #[test]
     fn test_labels() {
