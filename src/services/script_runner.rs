@@ -13,6 +13,14 @@ const RADAR_ROOT_ENV: &str = "ALLIANCE_RADAR_LOCATION_LIDAR_ROOT";
 const LASER_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
+const RADAR_STDERR_LOG: &str = "/tmp/radar-egui-radar.stderr.log";
+const SDR_STDERR_LOG: &str = "/tmp/radar-egui-sdr.stderr.log";
+const LASER_STDERR_LOG: &str = "/tmp/radar-egui-laser.stderr.log";
+
+pub(crate) struct ProcessExit {
+    pub component: super::process_runtime::ProcessComponent,
+    pub detail: String,
+}
 
 // ── LaserScript ──────────────────────────────────────────────────────────────
 
@@ -111,20 +119,24 @@ impl ScriptRunner {
     pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
         self.stop_radar();
 
-        let repo = resolve_radar_root()?;
+        let repo = resolve_radar_root().map_err(|error| {
+            contextual_error(error, "Radar", "resolve workspace", &radar_root_candidate())
+        })?;
         let cmd = format!(
             "source /opt/ros/jazzy/setup.bash && \
              source ros_ws/install/setup.bash && \
              exec ros2 launch radar_bringup competition.launch.py side:={side}"
         );
 
+        let stderr = stderr_log(RADAR_STDERR_LOG, "Radar")?;
         let child = Command::new("bash")
             .args(["-lc", &cmd])
             .current_dir(&repo)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .stdin(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .map_err(|error| contextual_error(error, "Radar", "spawn bash launch", &repo))?;
 
         log::info!("Started Radar (side={side}, pid={})", child.id());
         self.radar_child = Some(child);
@@ -146,34 +158,26 @@ impl ScriptRunner {
     // ── Laser ────────────────────────────────────────────────────────────────
 
     pub fn start(&mut self, script: LaserScript) -> io::Result<()> {
-        // 拿走旧状态，后台清理（不阻塞 UI）
-        let old_active = self.active.take();
-        let old_child = self.child.take();
+        self.stop();
 
-        if let Some(active) = old_active {
-            if active.is_daemon() {
-                let _ = std::thread::spawn(move || {
-                    send_fifo("quit").ok();
-                });
-            }
-        }
-        if let Some(mut child) = old_child {
-            let _ = std::thread::spawn(move || {
-                let _ = child.kill();
-                let _ = child.wait();
-                log::info!("Stopped old laser script wrapper");
-            });
-        }
-
-        let laser_root = resolve_laser_root()?;
+        let laser_root = resolve_laser_root().map_err(|error| {
+            contextual_error(
+                error,
+                "Laser",
+                "resolve script root",
+                &laser_root_candidate(),
+            )
+        })?;
         let path = laser_root.join(".script").join(script.script_name());
+        let stderr = stderr_log(LASER_STDERR_LOG, "Laser")?;
         let child = Command::new(&path)
             .current_dir(&laser_root)
             .env("LASER_HEADLESS", "1")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .stdin(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .map_err(|error| contextual_error(error, "Laser", "spawn script", &path))?;
 
         log::info!(
             "Started laser script: {:?} from {} (pid={})",
@@ -224,15 +228,20 @@ impl ScriptRunner {
     pub fn start_sdr(&mut self, enemy_color: &str) -> io::Result<()> {
         self.stop_sdr();
 
-        let sdr_dir = PathBuf::from(SDR_REPO);
+        let sdr_dir = std::path::absolute(SDR_REPO).map_err(|error| {
+            contextual_error(error, "SDR", "resolve repository", Path::new(SDR_REPO))
+        })?;
+        let script = sdr_dir.join("thread_init.py");
+        let stderr = stderr_log(SDR_STDERR_LOG, "SDR")?;
         let child = Command::new("python3")
             .args(["thread_init.py", "--enemySide", enemy_color])
             .current_dir(&sdr_dir)
             .env("PYTHONPATH", ".")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .stdin(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .map_err(|error| contextual_error(error, "SDR", "spawn thread_init.py", &script))?;
 
         log::info!(
             "Started SDR bridge (pid={}) with enemy={enemy_color}",
@@ -259,6 +268,32 @@ impl ScriptRunner {
         self.stop();
         self.stop_sdr();
     }
+
+    pub(crate) fn poll_exits(&mut self) -> Vec<ProcessExit> {
+        let mut exits = Vec::new();
+        poll_child(
+            &mut self.radar_child,
+            super::process_runtime::ProcessComponent::Radar,
+            RADAR_STDERR_LOG,
+            &mut exits,
+        );
+        poll_child(
+            &mut self.sdr_child,
+            super::process_runtime::ProcessComponent::Sdr,
+            SDR_STDERR_LOG,
+            &mut exits,
+        );
+        let laser_exited = poll_child(
+            &mut self.child,
+            super::process_runtime::ProcessComponent::Laser,
+            LASER_STDERR_LOG,
+            &mut exits,
+        );
+        if laser_exited {
+            self.active = None;
+        }
+        exits
+    }
 }
 
 impl Drop for ScriptRunner {
@@ -279,12 +314,71 @@ pub fn resolve_radar_root() -> io::Result<PathBuf> {
     )
 }
 
+fn radar_root_candidate() -> PathBuf {
+    std::env::var_os(RADAR_ROOT_ENV).map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../alliance_radar_location_lidar"),
+        PathBuf::from,
+    )
+}
+
 pub fn resolve_laser_root() -> io::Result<PathBuf> {
     if let Some(root) = std::env::var_os(LASER_ROOT_ENV) {
         return valid_laser_root(PathBuf::from(root));
     }
 
     valid_laser_root(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../laser_guidance"))
+}
+
+fn laser_root_candidate() -> PathBuf {
+    std::env::var_os(LASER_ROOT_ENV).map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../laser_guidance"),
+        PathBuf::from,
+    )
+}
+
+fn contextual_error(error: io::Error, component: &str, operation: &str, path: &Path) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!(
+            "{component} {operation} at {} failed: {error}",
+            path.display()
+        ),
+    )
+}
+
+fn stderr_log(path: &str, component: &str) -> io::Result<Stdio> {
+    std::fs::File::create(path)
+        .map(Stdio::from)
+        .map_err(|error| contextual_error(error, component, "open stderr log", Path::new(path)))
+}
+
+fn poll_child(
+    child: &mut Option<Child>,
+    component: super::process_runtime::ProcessComponent,
+    log_path: &str,
+    exits: &mut Vec<ProcessExit>,
+) -> bool {
+    let Some(process) = child.as_mut() else {
+        return false;
+    };
+    let detail = match process.try_wait() {
+        Ok(Some(status)) => Some(format!("{status}; stderr: {log_path}")),
+        Ok(None) => None,
+        Err(error) => {
+            let _ = process.kill();
+            let _ = process.wait();
+            Some(format!(
+                "status poll failed and process was terminated: {error}; stderr: {log_path}"
+            ))
+        }
+    };
+    if let Some(detail) = detail {
+        *child = None;
+        exits.push(ProcessExit { component, detail });
+        true
+    } else {
+        false
+    }
 }
 
 fn valid_radar_root(path: PathBuf) -> io::Result<PathBuf> {
@@ -332,6 +426,10 @@ pub fn daemon_alive() -> bool {
         Ok(meta) => meta.file_type().is_fifo(),
         Err(_) => false,
     }
+}
+
+pub(crate) fn laser_fifo_path() -> &'static Path {
+    Path::new(LASER_FIFO)
 }
 
 pub fn send_fifo(cmd: &str) -> io::Result<()> {
@@ -434,6 +532,22 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert!(error.to_string().contains("competition.launch.py"));
         std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn contextual_errors_include_component_operation_path_and_cause() {
+        let error = contextual_error(
+            io::Error::new(io::ErrorKind::PermissionDenied, "denied by kernel"),
+            "Laser",
+            "spawn script",
+            Path::new("/tmp/laser script"),
+        );
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            error.to_string(),
+            "Laser spawn script at /tmp/laser script failed: denied by kernel"
+        );
     }
 
     #[test]

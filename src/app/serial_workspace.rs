@@ -353,10 +353,14 @@ mod tests {
     #[test]
     fn first_serial_observation_sets_baseline_without_log_entries() {
         let mut previous = None;
-        let events = observe_serial_state(&mut previous, &SharedData::default());
+        let mut data = SharedData::default();
+        data.game_state.stage_remain_time = 317;
+        data.radar_mark_process.opponent_sentry_vulnerable = 1;
+        let expected = SerialObservedState::from_shared(&data);
+        let events = observe_serial_state(&mut previous, &data);
 
         assert!(events.is_empty());
-        assert!(previous.is_some());
+        assert_eq!(previous, Some(expected));
     }
 
     #[test]

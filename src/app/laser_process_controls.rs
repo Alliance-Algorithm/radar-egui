@@ -164,7 +164,11 @@ impl RadarApp {
             if ui
                 .add_enabled(
                     !pending,
-                    egui::Button::new(if pending { "Starting..." } else { "Start All" }),
+                    egui::Button::new(if pending {
+                        "Starting..."
+                    } else {
+                        "Start All · Radar → SDR → Laser"
+                    }),
                 )
                 .clicked()
             {
