@@ -63,13 +63,12 @@ alliance_radar_location_lidar ─────┘                         Arc<Mut
                                                                     │
                                                                     └─▶ UI 最新快照
 
-DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx) ──▶ ZMQ PUB 线程
-                                                                     │
-                                                                     ├─▶ :5557
-                                                                     │  TransmitGameState /
-                                                                     │  TransmitRadarMarkProcess
-                                                                     │
-                                                                     └─▶ Serial TX (通知对应 idx 只发一帧)
+DJI Referee ──UART──▶ Serial RX ──▶ Parser ──写──▶ SharedData ──▶ UI 独立读取最新快照
+                                      │
+                                      ├─ tx.send(idx) ──▶ ZMQ PUB 线程 ──▶ :5557
+                                      │                    TransmitGameState /
+                                      │                    TransmitRadarMarkProcess
+                                      └─ tx.send(idx) ──▶ Serial TX (通知对应 idx 只发一帧)
 
 laser_guidance ──SHM /laser_frame──▶ VideoRuntime (懒) ──▶ Laser 视频
 model_to_map ──SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ egui SHM/点数/帧状态
