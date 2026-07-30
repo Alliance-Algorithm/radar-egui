@@ -1,34 +1,93 @@
-use std::io;
+use super::process_runtime::{
+    ProcessCommand, ProcessRuntime, ProcessSendError, ProcessSnapshot, StartAllOptions,
+    StartLaserOptions,
+};
+use super::script_runner::{self, LaserScript, TeamSide};
 
-use super::script_runner::{self, LaserScript, ScriptRunner};
+pub enum TeamSideInput<'a> {
+    Side(TeamSide),
+    Legacy(&'a str),
+}
 
-struct PendingStartAll {
-    launch_at: std::time::Instant,
-    laser_script: LaserScript,
-    enemy_cmd: String,
-    stream_cmd: String,
-    record_cmd: String,
+impl From<TeamSide> for TeamSideInput<'_> {
+    fn from(side: TeamSide) -> Self {
+        Self::Side(side)
+    }
+}
+
+impl<'a> From<&'a str> for TeamSideInput<'a> {
+    fn from(side: &'a str) -> Self {
+        Self::Legacy(side)
+    }
+}
+
+impl<'a> From<&'a String> for TeamSideInput<'a> {
+    fn from(side: &'a String) -> Self {
+        Self::Legacy(side.as_str())
+    }
 }
 
 pub struct ProcessControl {
-    script_runner: ScriptRunner,
-    pending_start_all: Option<PendingStartAll>,
+    runtime: ProcessRuntime,
 }
 
 impl ProcessControl {
     pub fn new() -> Self {
         Self {
-            script_runner: ScriptRunner::new(),
-            pending_start_all: None,
+            runtime: ProcessRuntime::start(),
         }
     }
 
+    pub fn snapshot(&self) -> ProcessSnapshot {
+        self.runtime.snapshot()
+    }
+
+    pub fn start_all(&self, options: StartAllOptions) -> Result<(), ProcessSendError> {
+        self.runtime.send(options.into())
+    }
+
+    pub fn retry_failed(&self) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::RetryFailed)
+    }
+
+    pub fn start_radar<'a>(
+        &self,
+        side: impl Into<TeamSideInput<'a>>,
+    ) -> Result<(), ProcessSendError> {
+        let side = match side.into() {
+            TeamSideInput::Side(side) => side,
+            TeamSideInput::Legacy("blue") => TeamSide::Blue,
+            TeamSideInput::Legacy(_) => TeamSide::Red,
+        };
+        self.runtime.send(ProcessCommand::StartRadar(side))
+    }
+
+    pub fn start_sdr<'a>(
+        &self,
+        side: impl Into<TeamSideInput<'a>>,
+    ) -> Result<(), ProcessSendError> {
+        let side = match side.into() {
+            TeamSideInput::Side(side) => side,
+            TeamSideInput::Legacy("red") => TeamSide::Blue,
+            TeamSideInput::Legacy(_) => TeamSide::Red,
+        };
+        self.runtime.send(ProcessCommand::StartSdr(side))
+    }
+
+    pub fn start_laser(&self, options: StartLaserOptions) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::StartLaser(options))
+    }
+
+    pub fn stop_all(&self) -> Result<(), ProcessSendError> {
+        self.runtime.send(ProcessCommand::StopAll)
+    }
+
     pub fn is_running(&self) -> bool {
-        self.script_runner.is_running()
+        self.snapshot().laser.managed
     }
 
     pub fn active(&self) -> Option<LaserScript> {
-        self.script_runner.active()
+        self.snapshot().laser.active_laser
     }
 
     pub fn daemon_alive(&self) -> bool {
@@ -36,131 +95,104 @@ impl ProcessControl {
     }
 
     pub fn is_sdr_running(&self) -> bool {
-        self.script_runner.is_sdr_running()
+        self.snapshot().sdr.managed
     }
 
     pub fn is_radar_running(&self) -> bool {
-        self.script_runner.is_radar_running()
+        self.snapshot().radar.managed
     }
 
     pub fn has_pending_start_all(&self) -> bool {
-        self.pending_start_all.is_some()
+        matches!(
+            self.snapshot().phase,
+            super::process_runtime::ProcessPhase::StartingRadar
+                | super::process_runtime::ProcessPhase::WaitingForRadar
+                | super::process_runtime::ProcessPhase::StartingSdr
+                | super::process_runtime::ProcessPhase::WaitingForSdr
+                | super::process_runtime::ProcessPhase::StartingLaser
+                | super::process_runtime::ProcessPhase::ConfiguringLaser
+        )
     }
 
-    pub fn send_laser_command(&self, cmd: &str) {
-        let cmd = cmd.to_owned();
-        std::thread::spawn(move || {
-            if let Err(e) = script_runner::send_fifo(&cmd) {
-                log::warn!("Failed to send laser command '{}': {}", cmd, e);
-            }
-        });
-    }
-
-    pub fn start_script(&mut self, script: LaserScript, _camera_device: &str) -> io::Result<()> {
-        self.cancel_pending_start_all();
-        self.script_runner.start(script)
+    pub fn start_script(
+        &self,
+        script: LaserScript,
+        _camera_device: &str,
+    ) -> Result<(), ProcessSendError> {
+        self.start_laser(StartLaserOptions {
+            script,
+            side: TeamSide::Red,
+            stream: false,
+            record: false,
+            laser_auto: false,
+            configure: false,
+        })
     }
 
     pub fn start_script_with_daemon_config(
-        &mut self,
+        &self,
         script: LaserScript,
         _camera_device: &str,
         enemy_cmd: String,
         stream_cmd: String,
         record_cmd: String,
-    ) -> io::Result<()> {
-        self.cancel_pending_start_all();
-        self.script_runner.start(script)?;
-
-        if script.is_daemon() {
-            Self::spawn_start_all_commands(enemy_cmd, stream_cmd, record_cmd);
-        }
-
-        Ok(())
+    ) -> Result<(), ProcessSendError> {
+        self.start_laser(StartLaserOptions {
+            script,
+            side: if enemy_cmd == "enemy red" {
+                TeamSide::Blue
+            } else {
+                TeamSide::Red
+            },
+            stream: stream_cmd == "stream on",
+            record: record_cmd == "record on",
+            laser_auto: enemy_cmd == "enemy auto",
+            configure: script.is_daemon(),
+        })
     }
 
-    pub fn stop_script(&mut self) {
-        self.cancel_pending_start_all();
-        self.script_runner.stop();
+    pub fn stop_script(&self) {
+        let _ = self.runtime.send(ProcessCommand::StopLaser);
     }
 
-    pub fn start_sdr(&mut self, enemy_color: &str) -> io::Result<()> {
-        self.cancel_pending_start_all();
-        self.script_runner.start_sdr(enemy_color)
+    pub fn stop_sdr(&self) {
+        let _ = self.runtime.send(ProcessCommand::StopSdr);
     }
 
-    pub fn stop_sdr(&mut self) {
-        self.cancel_pending_start_all();
-        self.script_runner.stop_sdr();
-    }
-
-    pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
-        self.script_runner.start_radar(side)
-    }
-
-    pub fn stop_radar(&mut self) {
-        self.script_runner.stop_radar();
+    pub fn stop_radar(&self) {
+        let _ = self.runtime.send(ProcessCommand::StopRadar);
     }
 
     pub fn schedule_start_all(
-        &mut self,
+        &self,
         sdr_enemy_color: &str,
         _camera_device: &str,
         enemy_cmd: String,
         stream_cmd: String,
         record_cmd: String,
-    ) -> io::Result<()> {
-        self.cancel_pending_start_all();
-        self.script_runner.start_sdr(sdr_enemy_color)?;
-        self.pending_start_all = Some(PendingStartAll {
-            launch_at: std::time::Instant::now() + std::time::Duration::from_secs(1),
-            laser_script: LaserScript::Competition,
-            enemy_cmd,
-            stream_cmd,
-            record_cmd,
-        });
-        Ok(())
-    }
-
-    pub fn stop_all(&mut self) {
-        self.cancel_pending_start_all();
-        self.script_runner.stop_all();
-    }
-
-    pub fn cancel_pending_start_all(&mut self) {
-        self.pending_start_all = None;
-    }
-
-    pub fn trigger_pending_start_all(&mut self) {
-        let Some(pending) = self.pending_start_all.take() else {
-            return;
+    ) -> Result<(), ProcessSendError> {
+        let side = if sdr_enemy_color == "red" {
+            TeamSide::Blue
+        } else {
+            TeamSide::Red
         };
-
-        if std::time::Instant::now() < pending.launch_at {
-            self.pending_start_all = Some(pending);
-            return;
-        }
-
-        if let Err(e) = self.script_runner.start(pending.laser_script) {
-            log::error!("Start All failed: {}", e);
-            return;
-        }
-
-        Self::spawn_start_all_commands(pending.enemy_cmd, pending.stream_cmd, pending.record_cmd);
+        self.start_all(StartAllOptions {
+            side,
+            stream: stream_cmd == "stream on",
+            record: record_cmd == "record on",
+            laser_auto: enemy_cmd == "enemy auto",
+        })
     }
 
-    fn spawn_start_all_commands(enemy_cmd: String, stream_cmd: String, record_cmd: String) {
-        std::thread::spawn(move || {
-            for _ in 0..100 {
-                let ok = script_runner::send_fifo(&enemy_cmd).is_ok()
-                    && script_runner::send_fifo(&stream_cmd).is_ok()
-                    && script_runner::send_fifo(&record_cmd).is_ok();
-                if ok {
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            log::warn!("Timed out sending config after Start All");
-        });
+    pub fn send_laser_command(&self, command: &str) {
+        let _ = self
+            .runtime
+            .send(ProcessCommand::SendLaserCommand(command.to_owned()));
+    }
+}
+
+impl Default for ProcessControl {
+    fn default() -> Self {
+        Self::new()
     }
 }

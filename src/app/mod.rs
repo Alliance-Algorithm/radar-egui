@@ -336,7 +336,6 @@ impl eframe::App for RadarApp {
         let snapshot = self.shared_reader.snapshot();
         self.update_connection_status(&snapshot);
         self.apply_theme(ctx);
-        self.process_control.trigger_pending_start_all();
         if self.active_tab == ActiveTab::Radar {
             self.update_pointcloud();
         }

@@ -206,7 +206,9 @@ impl RadarApp {
                     .add_sized([ui.available_width(), 30.0], egui::Button::new("Stop All"))
                     .clicked()
                 {
-                    self.process_control.stop_all();
+                    if let Err(error) = self.process_control.stop_all() {
+                        log::error!("Stop All failed: {}", error);
+                    }
                 }
             }
         });
