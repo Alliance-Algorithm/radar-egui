@@ -155,7 +155,13 @@ impl SerialPanel {
                 "累计 · 无 parser 统计",
                 theme::text(),
             );
-            metric_card(&mut cols[3], "吞吐", "—", "RX · last 1s", theme::text());
+            metric_card(
+                &mut cols[3],
+                "吞吐",
+                "—",
+                "RX · 无 parser 统计",
+                theme::text(),
+            );
         });
     }
 

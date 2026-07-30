@@ -109,6 +109,29 @@ fn diff_serial_state(
     events
 }
 
+fn observe_serial_state(
+    previous: &mut Option<SerialObservedState>,
+    data: &SharedData,
+) -> Vec<SerialLogEvent> {
+    let current = SerialObservedState::from_shared(data);
+    let events = previous
+        .as_ref()
+        .map(|previous| diff_serial_state(previous, &current))
+        .unwrap_or_default();
+    *previous = Some(current);
+    events
+}
+
+fn push_bounded_serial_log(
+    log: &mut std::collections::VecDeque<SerialFrameLogLine>,
+    line: SerialFrameLogLine,
+) {
+    log.push_back(line);
+    while log.len() > 80 {
+        log.pop_front();
+    }
+}
+
 impl RadarApp {
     pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context, snapshot: &SharedData) {
         self.show_left_rail(ctx);
@@ -274,23 +297,19 @@ impl RadarApp {
 
     fn push_serial_log(&mut self, kind: SerialLogKind, text: String) {
         let ts = chrono_like_now();
-        self.serial_frame_log.push_back(SerialFrameLogLine {
-            text: format!("{ts}  {text}"),
-            kind,
-        });
-        while self.serial_frame_log.len() > 80 {
-            self.serial_frame_log.pop_front();
-        }
+        push_bounded_serial_log(
+            &mut self.serial_frame_log,
+            SerialFrameLogLine {
+                text: format!("{ts}  {text}"),
+                kind,
+            },
+        );
     }
 
     pub(super) fn update_serial_state_log(&mut self, data: &SharedData) {
-        let current = SerialObservedState::from_shared(data);
-        if let Some(previous) = &self.serial_last_observed {
-            for event in diff_serial_state(previous, &current) {
-                self.push_serial_log(event.kind, event.text);
-            }
+        for event in observe_serial_state(&mut self.serial_last_observed, data) {
+            self.push_serial_log(event.kind, event.text);
         }
-        self.serial_last_observed = Some(current);
     }
 }
 
@@ -329,5 +348,32 @@ mod tests {
     fn identical_serial_snapshots_do_not_create_fake_frames() {
         let state = SerialObservedState::default();
         assert!(diff_serial_state(&state, &state).is_empty());
+    }
+
+    #[test]
+    fn first_serial_observation_sets_baseline_without_log_entries() {
+        let mut previous = None;
+        let events = observe_serial_state(&mut previous, &SharedData::default());
+
+        assert!(events.is_empty());
+        assert!(previous.is_some());
+    }
+
+    #[test]
+    fn serial_log_keeps_only_the_latest_eighty_entries() {
+        let mut log = std::collections::VecDeque::new();
+        for index in 0..81 {
+            push_bounded_serial_log(
+                &mut log,
+                SerialFrameLogLine {
+                    text: index.to_string(),
+                    kind: SerialLogKind::Info,
+                },
+            );
+        }
+
+        assert_eq!(log.len(), 80);
+        assert_eq!(log.front().unwrap().text, "1");
+        assert_eq!(log.back().unwrap().text, "80");
     }
 }

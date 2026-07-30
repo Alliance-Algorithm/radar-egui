@@ -2,8 +2,8 @@
 //!
 //! 从 radar-egui 中 spawn 比赛所需的三个外部进程：
 //!   - ROS2 Radar       (alliance_radar_location_lidar: camera + lidar + fusion + bridge)
-//!   - laser_guidance  脚本 (competition / preview / stream / record)
-//!   - SDR 数据桥接    (alliance_radar_sdr/tcp/tcp_launch.py)
+//!   - laser_guidance  脚本 (competition-laser / preview-laser / stream / record)
+//!   - SDR 数据桥接    (alliance_radar_sdr/thread_init.py)
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -405,6 +405,34 @@ mod tests {
         )
         .unwrap();
         assert!(valid_radar_root(temp.clone()).is_ok());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn valid_laser_root_rejects_incomplete_script_contract() {
+        let temp = temp_test_dir("incomplete-laser-root");
+        std::fs::create_dir_all(temp.join(".script")).unwrap();
+        std::fs::write(temp.join(".script/competition-laser"), "").unwrap();
+
+        let error = valid_laser_root(temp.clone()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("preview-laser"));
+        assert!(error.to_string().contains("stream"));
+        assert!(error.to_string().contains("record"));
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn valid_radar_root_rejects_incomplete_workspace_contract() {
+        let temp = temp_test_dir("incomplete-radar-root");
+        std::fs::create_dir_all(temp.join("ros_ws/install")).unwrap();
+        std::fs::write(temp.join("ros_ws/install/setup.bash"), "").unwrap();
+
+        let error = valid_radar_root(temp.clone()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("competition.launch.py"));
         std::fs::remove_dir_all(temp).unwrap();
     }
 
