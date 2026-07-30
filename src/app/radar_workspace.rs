@@ -4,6 +4,10 @@ use super::RadarApp;
 use crate::theme;
 use crate::ui_layout::{inset_rect, STAGE_PAD};
 
+fn rerun_status_label() -> &'static str {
+    "optional · not monitored"
+}
+
 impl RadarApp {
     pub(super) fn show_radar_workspace(&mut self, ctx: &egui::Context) {
         self.ensure_pointcloud_started();
@@ -17,15 +21,17 @@ impl RadarApp {
             |_, ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("Radar Workspace")
+                        egui::RichText::new("ROS2 Radar Workspace")
                             .color(theme::text())
                             .size(21.0),
                     );
                     ui.add_space(12.0);
                     ui.label(
-                        egui::RichText::new("point cloud / rerun 3D viewer")
-                            .color(theme::text_muted())
-                            .size(13.0),
+                        egui::RichText::new(
+                            "location transport / point-cloud SHM / optional Rerun",
+                        )
+                        .color(theme::text_muted())
+                        .size(13.0),
                     );
                 });
             },
@@ -110,22 +116,17 @@ impl RadarApp {
     }
 
     pub(super) fn show_radar_status_strip(&self, ui: &mut egui::Ui) {
-        let has_data = self
-            .pointcloud_feed
-            .with_frame(|f| f.is_some())
-            .unwrap_or(false);
         let points = self
             .pointcloud_feed
             .with_frame(|f| f.map(|frame| frame.points.len()).unwrap_or(0))
             .unwrap_or(0);
-        let grpc = if has_data { "streaming" } else { "idle" };
 
         ui.columns(4, |cols| {
             let cells = [
                 ("SHM", "/pointcloud_frame".to_string()),
                 ("Frame seq", self.pointcloud_last_seq.to_string()),
                 ("Points", points.to_string()),
-                ("gRPC", grpc.to_string()),
+                ("Rerun", "optional".to_string()),
             ];
             for (i, (label, val)) in cells.into_iter().enumerate() {
                 egui::Frame::new()
@@ -140,18 +141,47 @@ impl RadarApp {
                                 .size(11.0),
                         );
                         ui.add_space(4.0);
-                        let color = if i == 3 && has_data {
-                            theme::GREEN
-                        } else {
-                            theme::text()
-                        };
-                        ui.label(egui::RichText::new(val).color(color).size(16.0));
+                        ui.label(egui::RichText::new(val).color(theme::text()).size(16.0));
                     });
             }
         });
     }
 
     pub(super) fn show_radar_status_sidebar(&mut self, ui: &mut egui::Ui) {
+        let process_snapshot = self.process_control.snapshot();
+        white_card(ui, "ROS2 Radar", |ui| {
+            status_chip(
+                ui,
+                process_snapshot.radar.managed,
+                if process_snapshot.radar.managed {
+                    "Process running"
+                } else {
+                    "Process idle"
+                },
+            );
+            ui.add_space(10.0);
+            egui::Grid::new("ros2_radar_meta")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    for (label, value) in [
+                        (
+                            "Launch",
+                            "ros2 launch radar_bringup competition.launch.py side:=…",
+                        ),
+                        ("Location", "ZMQ tcp://127.0.0.1:5556"),
+                    ] {
+                        ui.label(
+                            egui::RichText::new(label)
+                                .color(theme::text_faint())
+                                .size(12.0),
+                        );
+                        ui.label(egui::RichText::new(value).color(theme::text()).size(11.0));
+                        ui.end_row();
+                    }
+                });
+        });
+        ui.add_space(12.0);
         white_card(ui, "点云源", |ui| {
             let has_data = self
                 .pointcloud_feed
@@ -166,8 +196,6 @@ impl RadarApp {
                     "SHM idle"
                 },
             );
-            ui.add_space(8.0);
-            status_chip(ui, true, "Rerun external");
             ui.add_space(10.0);
             egui::Grid::new("radar_shm_meta")
                 .num_columns(2)
@@ -198,21 +226,21 @@ impl RadarApp {
                 });
         });
         ui.add_space(12.0);
-        white_card(ui, "Rerun 控制", |ui| {
+        white_card(ui, "Rerun", |ui| {
             ui.label(
-                egui::RichText::new("当前架构：外部进程 + gRPC")
+                egui::RichText::new(rerun_status_label())
                     .color(theme::text_muted())
                     .size(12.0),
             );
             ui.add_space(8.0);
             ui.label(
-                egui::RichText::new("cargo run --release --features rerun")
+                egui::RichText::new("Optional 3D visualization feature")
                     .color(theme::text_faint())
                     .size(11.0),
             );
             ui.add_space(4.0);
             ui.label(
-                egui::RichText::new("另开终端: rerun")
+                egui::RichText::new("cargo run --release --features rerun")
                     .color(theme::text_faint())
                     .size(11.0),
             );
@@ -221,5 +249,15 @@ impl RadarApp {
         white_card(ui, "状态", |ui| {
             self.show_pointcloud_status(ui);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rerun_status_label;
+
+    #[test]
+    fn rerun_status_does_not_claim_connection() {
+        assert_eq!(rerun_status_label(), "optional · not monitored");
     }
 }
