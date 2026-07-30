@@ -152,6 +152,10 @@ impl ProcessControl {
     }
 
     pub fn stop_script(&self) -> Result<(), ProcessSendError> {
+        self.stop_laser()
+    }
+
+    pub fn stop_laser(&self) -> Result<(), ProcessSendError> {
         self.runtime.send(ProcessCommand::StopLaser)
     }
 
