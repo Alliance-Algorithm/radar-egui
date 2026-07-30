@@ -43,15 +43,15 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 | 组件 | 仓库 / 路径 | 进程控制如何启动 | 数据输出 |
 |------|-------------|------------------|----------|
 | SDR 桥 | `../alliance_radar_sdr` | `python3 thread_init.py --enemySide …` | ZMQ PUB `tcp://127.0.0.1:5555`（ReceiveSdr） |
-| ROS2 Radar | `../alliance_radar_location_lidar` | `ros2 launch radar_bringup competition.launch.py side:=…`（Jazzy + `ros_ws`） | ZMQ PUB `tcp://127.0.0.1:5556`（ReceiveLidarLocation） |
-| Laser | `laser_guidance`（`LASER_GUIDANCE_ROOT` 或相对路径探测） | `.script/{competition,preview,stream,record}` + FIFO `/tmp/laser_cmd` | ZMQ PUB `:5556` + SHM `/laser_frame` |
+| ROS2 Radar | `ALLIANCE_RADAR_LOCATION_LIDAR_ROOT`，否则 manifest 相对 `../../alliance_radar_location_lidar` | source Jazzy/workspace Bash setup，`ros2 launch radar_bringup competition.launch.py side:=…` | ZMQ PUB `tcp://127.0.0.1:5556`（ReceiveLidarLocation） |
+| Laser | `LASER_GUIDANCE_ROOT`，否则 manifest 相对 `../../laser_guidance` | `.script/{competition-laser,preview-laser,stream,record}` + FIFO `/tmp/laser_cmd` | ZMQ PUB `:5556` + SHM `/laser_frame` |
 | 点云 | `model_to_map` 等 | 不由 egui 直接 spawn | SHM `/pointcloud_frame` |
 | 裁判系统 | UART 设备 | **串口线程尚未在 app 中启动** | DJI 协议帧 |
 
 **已废弃 / 勿再写进架构：**
 
 - TCP `127.0.0.1:2000` + `tcp_client.rs` / `protocol.rs` / `RoboMasterSignalInfo`（已由 ZMQ `ReceiveSdr` 替代）
-- Unity `RADAR_APP` 作为「Start Radar」目标（已由 `alliance_radar_location_lidar` ROS2 替代）
+- 禁止重新引入 Unity `RADAR_APP` 作为「Start Radar」目标；当前目标是 `alliance_radar_location_lidar` ROS2 workspace
 - Laser UDP observer 作为主路径（代码可能仍在，`ensure_laser_started` 为空；主路径是 ZMQ SUB）
 
 ## 数据流
@@ -94,21 +94,32 @@ PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段�
 1. 创建共享状态：`ZmqData` / `SerialData` / Laser / Video / PointCloud reader-writer pairs
 2. **立即** `ZmqSubRuntime::start` + `ZmqPubRuntime::start`（`std::thread` + 阻塞 `zmq2`，**不是** Tokio 任务）
 3. `VideoRuntime` / `PointCloudRuntime` 只构造，进对应标签时 `ensure_started`
-4. `ProcessControl` 空闲，等 UI 按钮
+4. `ProcessControl::new` 启动专用 `ProcessRuntime` actor；actor 空闲等待 UI 的 `ProcessCommand`
 
 ### 外部进程（UI）
+
+```text
+egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRunner
+                                                   │
+                                                   └→ watch<ProcessSnapshot> → egui
+```
+
+全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`。Radar 接收我方 `red|blue`；SDR 接收相反阵营作为 `--enemySide`；Laser 默认接收相反阵营的 `enemy red|blue`，开启 Auto 时接收 `enemy auto`。HikCamera 由 `laser_guidance` 配置和持有，单设备时由其自动选择，egui 不下发 camera device。
 
 | 动作 | 行为 |
 |------|------|
 | Start SDR | `ScriptRunner::start_sdr` |
-| Start Radar | `ScriptRunner::start_radar` → `../alliance_radar_location_lidar` ROS2 launch |
+| Start Radar | `ScriptRunner::start_radar` → 已校验的 ROS2 Radar root |
 | Start Laser | laser 脚本 + 可选 FIFO 配置 |
-| Start All | t=0 SDR → t=1s Laser::Competition + FIFO（**不含** ROS2 Radar） |
-| Stop All | 停 Radar + Laser + SDR |
+| Start All | actor 协程：Radar → 1s → SDR → 1s → Laser::Competition → FIFO |
+| Stop All | 取消未完成的 Start All/FIFO 重试，再停 Laser → SDR → Radar |
 
 ## 运行时模型（Tokio）
 
 - **依赖有** `tokio` full；**主 I/O 路径不全是 Tokio**
+- Process runtime：一个专用 OS 线程 + 一个 Tokio runtime；actor 独占同步 `ScriptRunner`
+- 进程命令：unbounded Tokio `mpsc`；进程状态：`watch<ProcessSnapshot>`
+- Start All/FIFO deadline 与命令接收由 `tokio::select!` 竞争，延迟期间可响应 Stop All/Shutdown
 - ZMQ / Serial：`std::thread` 阻塞循环
 - Video / PointCloud：`spawn_runtime_task` → 每任务一个 OS 线程 + **独立** `tokio::runtime::Runtime::new().block_on(...)`
 - 关闭：Video/PointCloud 用 `watch`；ZMQ 的 `AtomicBool stop` 与工作循环未完全打通（已知缺口）
@@ -132,7 +143,8 @@ PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段�
 
 ### `services/`
 - `script_runner.rs`：spawn/kill SDR、ROS2 Radar、laser 脚本
-- `process_control.rs`：Start All 延迟编排、FIFO 命令
+- `process_runtime.rs`：Tokio actor、`ProcessCommand`、`ProcessSnapshot`、Start All/cancellation/FIFO retry 编排
+- `process_control.rs`：egui 使用的非阻塞 facade，只入队命令并读取 snapshot
 
 ### `zmq/`
 - `zmq.rs`：init/send/recv、SUB/PUB 线程、`ZmqData` JSON 消息
@@ -144,7 +156,7 @@ PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段�
 
 ### `laser/` / `pointcloud/` / `widgets/`
 - 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板
-- 可选 `rerun` feature 做 3D 可视化
+- 可选 `rerun` feature 只做 3D 可视化，不代表 ROS2 Radar、ZMQ 或 SHM 连接状态
 
 ## 关键设计决策
 
