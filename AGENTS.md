@@ -46,7 +46,7 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 | ROS2 Radar | `ALLIANCE_RADAR_LOCATION_LIDAR_ROOT`，否则 manifest 相对 `../../alliance_radar_location_lidar` | source Jazzy/workspace Bash setup，`ros2 launch radar_bringup competition.launch.py side:=…` | ZMQ PUB `tcp://127.0.0.1:5556`（ReceiveLidarLocation） |
 | Laser | `LASER_GUIDANCE_ROOT`，否则 manifest 相对 `../../laser_guidance` | `.script/{competition-laser,preview-laser,stream,record}` + FIFO `/tmp/laser_cmd` | ZMQ PUB `:5556` + SHM `/laser_frame` |
 | 点云 | `model_to_map` 等 | 不由 egui 直接 spawn | SHM `/pointcloud_frame` |
-| 裁判系统 | UART 设备 | **串口线程尚未在 app 中启动** | DJI 协议帧 |
+| 裁判系统 | UART 设备 | Serial UI 的 `open_serial()` 按钮按需启动 RX/TX 线程（不在 `RadarApp::default` 自动启动） | DJI 协议帧 |
 
 **已废弃 / 勿再写进架构：**
 
@@ -58,10 +58,11 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 
 ```
 alliance_radar_sdr ──ZMQ PUB :5555──┐
-laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──▶ Arc<Mutex<SharedData>>
-alliance_radar_location_lidar ─────┘         │
-                                             ├─▶ UI (SDR 小地图/面板, Laser 分析)
-                                             └─▶ Serial TX (10ms 轮询 SharedData → UART)
+laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──直接写──▶ SharedReader 所有的
+alliance_radar_location_lidar ─────┘                         Arc<Mutex<SharedData>>
+                                                                    │
+                                                                    ├─▶ UI 最新快照
+                                                                    └─▶ Serial TX (10ms 轮询 → UART)
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx) ──▶ ZMQ PUB 线程
                                                                      │
@@ -72,7 +73,8 @@ DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx
                                                                      └─▶ Serial TX (通知对应 idx 只发一帧)
 
 laser_guidance ──SHM /laser_frame──▶ VideoRuntime (懒) ──▶ Laser 视频
-model_to_map ───SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ Rerun
+model_to_map ──SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ egui SHM/点数/帧状态
+                                                                  └─▶ 可选 Rerun 3D 可视化
 ```
 
 ### ZMQ 消息 ID
@@ -91,7 +93,7 @@ PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段�
 
 ### 进程内（`RadarApp::default`）
 
-1. 创建共享状态：`ZmqData` / `SerialData` / Laser / Video / PointCloud reader-writer pairs
+1. `SharedReader::new_pair` 创建并持有统一 `Arc<Mutex<SharedData>>`；另建 Laser / Video / PointCloud reader-writer pairs
 2. **立即** `ZmqSubRuntime::start` + `ZmqPubRuntime::start`（`std::thread` + 阻塞 `zmq2`，**不是** Tokio 任务）
 3. `VideoRuntime` / `PointCloudRuntime` 只构造，进对应标签时 `ensure_started`
 4. `ProcessControl::new` 启动专用 `ProcessRuntime` actor；actor 空闲等待 UI 的 `ProcessCommand`
@@ -135,7 +137,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
 
 ### `state.rs`
 - `SharedReader`/`SharedWriter`、`LaserObservationReader`/`Writer`、`PointCloudFrameReader`/`Writer`
-- `SharedReader` 统一 `Arc<Mutex<SharedData>>` 最新值快照
+- `SharedReader` 持有统一 `Arc<Mutex<SharedData>>`，向 UI 提供最新快照；ZMQ/Serial runtime 共享其 `inner()`
 
 ### `runtime/mod.rs`
 - `ZmqSubRuntime` / `ZmqPubRuntime`
@@ -147,11 +149,11 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
 - `process_control.rs`：egui 使用的非阻塞 facade，只入队命令并读取 snapshot
 
 ### `zmq/`
-- `zmq.rs`：init/send/recv、SUB/PUB 线程、`ZmqData` JSON 消息
+- `zmq.rs`：私有 JSON 接收类型、SUB/PUB 线程；SUB 解码后直接写统一 `SharedData`
 
 ### `serial/`
 - DJI 裁判协议：parser / package / CRC / deku 结构体
-- `serial_start_receiver` / `serial_start_transmitter` — app 通过 `open_serial()` 调用
+- Serial UI 调用 `open_serial()` 后启动 `serial_start_receiver` / `serial_start_transmitter`；`RadarApp::default` 不自动打开串口
 - Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程和 Serial TX 线程
 
 ### `laser/` / `pointcloud/` / `widgets/`
@@ -199,7 +201,6 @@ cargo clippy -- -D warnings
 
 ## 已知缺口（给 agent 的注意点）
 
-1. 串口通过 UI `open_serial()` 按钮调用，未在 `RadarApp::default` 自动启动
-2. ~~ZMQ SUB 尚未完整写回 SerialData 做中继~~（已由统一 SharedData 解决：SUB 和 Serial 都写 SharedData，TX 轮询读）
-3. ZMQ runtime `stop` 与线程循环未完全联动
-4. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准
+1. 串口是已接线的用户启动路径：Serial UI 的 `open_serial()` 启动 RX/TX；设计上不在 `RadarApp::default` 自动启动
+2. ZMQ runtime `stop` 与线程循环未完全联动
+3. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准

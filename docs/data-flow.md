@@ -63,13 +63,14 @@
 ### 2.1 SDR 无线数据链路（敌方全量数据）
 
 ```
-alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB → Arc<Mutex<ZmqData>>
-                                                                  │
-                                  ┌────────────────────────────────┤
-                                  ▼                                ▼
-                           SDR 标签 (egui)                  ZMQ PUB :5557
-                           · 小地图(位置)                   (中继串口数据)
-                           · 血量/弹药/经济/增益面板
+alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB ──直接写──▶ SharedReader 所有的
+                                                                      Arc<Mutex<SharedData>>
+                                                                                │
+                                                ┌───────────────────────────────┤
+                                                ▼                               ▼
+                                         SDR 标签 (egui)                 Serial TX 轮询
+                                         · 小地图(位置)                  · UART 中继
+                                         · 血量/弹药/经济/增益面板
 ```
 
 **数据**：`ReceiveSdr` (JSON, cmd_id=0x2002) → 6 子结构体：
@@ -88,13 +89,16 @@ alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB → Arc<Mutex<ZmqDat
 ```
 DJI Referee ◀════ UART 115200bps ═══▶ radar-egui Serial RX/TX
                                            │
-                                    Arc<Mutex<SerialData>>
+                                           ▼
+                             SharedReader 所有的 Arc<Mutex<SharedData>>
                                            │
-                          ┌────────────────┼────────────────┐
-                          ▼                                  ▼
-                   ZMQ PUB 线程                           Serial TX 线程
-                   (串口→ZMQ:10ms轮询)                    (ZMQ→串口:10ms轮询)
+                          ┌────────────────┴────────────────┐
+                          ▼                                 ▼
+                 idx 通知 → ZMQ PUB                    Serial UI 最新快照
+                 (查询 SharedData → JSON)              (仅串口打开时记录变化)
 ```
+
+串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。
 
 **帧格式**：
 ```
@@ -158,7 +162,7 @@ exec ros2 launch radar_bringup competition.launch.py side:=<red|blue>
 
 ```
 alliance_radar_location_lidar (ROS2: camera + lidar + fusion + bridge)
-    → ZMQ PUB :5556 → radar-egui ZMQ SUB → Arc<Mutex<ZmqData>>.lidar
+    → ZMQ PUB :5556 → radar-egui ZMQ SUB ──直接写──▶ SharedReader 所有的 Arc<Mutex<SharedData>>
 ```
 
 **`ReceiveLidarLocation`** (JSON, cmd_id=0x2001)：12 机器人 × (x: u16, y: u16) = 24 字段。
@@ -267,7 +271,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → Tokio ProcessRuntime actor → Sc
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | 入口 | `src/main.rs` | eframe 窗口 1280×720 |
-| 全局状态 | `src/state.rs` | Zmq/Serial/Laser/PointCloud 读写端 |
+| 全局状态 | `src/state.rs` | `SharedReader`/`SharedWriter` 统一持有 `SharedData`；另有 Laser/PointCloud 读写端 |
 | 应用 | `src/app/` | RadarApp, 四 workspace 路由, 进程控制 UI, 连接状态, Rerun |
 | 运行时 | `src/runtime/mod.rs` | ZmqSub/PubRuntime, VideoRuntime, PointCloudRuntime |
 | 进程管理 | `src/services/` | process_runtime(actor/编排) + process_control(UI facade) + script_runner(外部进程/FIFO) |
