@@ -26,23 +26,6 @@ impl RadarApp {
                     "No recent packets"
                 },
             );
-            ui.add_space(12.0);
-            egui::Grid::new("laser_conn_grid")
-                .num_columns(2)
-                .min_col_width(78.0)
-                .spacing([12.0, 10.0])
-                .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new("Camera")
-                            .color(theme::text_muted())
-                            .size(13.0),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.camera_device)
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.end_row();
-                });
         });
 
         ui.add_space(14.0);

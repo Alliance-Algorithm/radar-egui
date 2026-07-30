@@ -8,6 +8,7 @@ use crate::pointcloud::rerun_visualizer::PointCloudVisualizer;
 use crate::rerun_visualizer::RerunVisualizer;
 use crate::runtime::{PointCloudRuntime, VideoRuntime, ZmqPubRuntime, ZmqSubRuntime};
 use crate::services::process_control::ProcessControl;
+use crate::services::{ProcessSendError, StartAllOptions, TeamSide};
 use crate::state::{LaserObservationReader, PointCloudFrameReader, SharedReader};
 use crate::theme;
 
@@ -37,38 +38,6 @@ enum ActiveTab {
     Laser,
     Radar,
     Serial,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum EnemyColor {
-    Red,
-    Blue,
-    Auto,
-}
-
-impl EnemyColor {
-    fn label(&self) -> &str {
-        match self {
-            EnemyColor::Red => "Red",
-            EnemyColor::Blue => "Blue",
-            EnemyColor::Auto => "Auto",
-        }
-    }
-
-    fn fifo_cmd(&self) -> &str {
-        match self {
-            EnemyColor::Red => "enemy red",
-            EnemyColor::Blue => "enemy blue",
-            EnemyColor::Auto => "enemy auto",
-        }
-    }
-
-    fn sdr_arg(&self) -> &str {
-        match self {
-            EnemyColor::Red | EnemyColor::Auto => "red",
-            EnemyColor::Blue => "blue",
-        }
-    }
 }
 
 pub struct RadarApp {
@@ -109,11 +78,11 @@ pub struct RadarApp {
     pointcloud_last_seq: u32,
 
     process_control: ProcessControl,
-    camera_device: String,
-    enemy_color: EnemyColor,
-    radar_side: String,
+    team_side: TeamSide,
+    laser_auto: bool,
     stream_on_start: bool,
     record_on_start: bool,
+    process_command_error: Option<String>,
 
     laser_stage_overlay: bool,
     laser_stage_demo: bool,
@@ -192,11 +161,11 @@ impl Default for RadarApp {
             pointcloud_runtime,
             pointcloud_last_seq: 0,
             process_control: ProcessControl::new(),
-            camera_device: "/dev/laser_capture".to_string(),
-            enemy_color: EnemyColor::Auto,
-            radar_side: "red".to_string(),
+            team_side: TeamSide::Red,
+            laser_auto: false,
             stream_on_start: true,
             record_on_start: false,
+            process_command_error: None,
             laser_stage_overlay: true,
             laser_stage_demo: false,
             serial_port_name: "/dev/ttyUSB0".to_string(),
@@ -212,7 +181,38 @@ impl Default for RadarApp {
     }
 }
 
+fn start_all_options(
+    side: TeamSide,
+    stream: bool,
+    record: bool,
+    laser_auto: bool,
+) -> StartAllOptions {
+    StartAllOptions {
+        side,
+        stream,
+        record,
+        laser_auto,
+    }
+}
+
+fn store_process_command_result(
+    error_state: &mut Option<String>,
+    result: Result<(), ProcessSendError>,
+) {
+    *error_state = result.err().map(|error| error.to_string());
+}
+
 impl RadarApp {
+    fn store_process_command_result(&mut self, result: Result<(), ProcessSendError>) {
+        store_process_command_result(&mut self.process_command_error, result);
+    }
+
+    fn update_shared_team_side(&self) {
+        if let Ok(mut shared) = self.shared_reader.inner().lock() {
+            shared.radar_side = self.team_side.as_str().to_owned();
+        }
+    }
+
     fn reconnect(&mut self) {
         self.connection_status = ConnectionStatus::Disconnected;
         self.last_update = None;
@@ -363,6 +363,33 @@ pub(super) fn app_clear_color() -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn start_all_options_preserve_laser_flags() {
+        let options = start_all_options(TeamSide::Blue, true, false, true);
+        assert_eq!(options.side, TeamSide::Blue);
+        assert!(options.stream);
+        assert!(!options.record);
+        assert!(options.laser_auto);
+    }
+
+    #[test]
+    fn successful_process_command_clears_previous_send_error() {
+        let mut error = Some("previous failure".to_owned());
+
+        store_process_command_result(&mut error, Ok(()));
+
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn failed_process_command_surfaces_send_error() {
+        let mut error = None;
+
+        store_process_command_result(&mut error, Err(ProcessSendError));
+
+        assert_eq!(error.as_deref(), Some("process runtime is not available"));
+    }
 
     #[test]
     fn app_clear_color_switches_between_light_and_dark() {
