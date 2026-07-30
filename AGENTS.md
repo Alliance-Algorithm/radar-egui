@@ -61,8 +61,7 @@ alliance_radar_sdr ──ZMQ PUB :5555──┐
 laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──直接写──▶ SharedReader 所有的
 alliance_radar_location_lidar ─────┘                         Arc<Mutex<SharedData>>
                                                                     │
-                                                                    ├─▶ UI 最新快照
-                                                                    └─▶ Serial TX (10ms 轮询 → UART)
+                                                                    └─▶ UI 最新快照
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──▶ tx.send(idx) ──▶ ZMQ PUB 线程
                                                                      │
@@ -155,6 +154,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
 - DJI 裁判协议：parser / package / CRC / deku 结构体
 - Serial UI 调用 `open_serial()` 后启动 `serial_start_receiver` / `serial_start_transmitter`；`RadarApp::default` 不自动打开串口
 - Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程和 Serial TX 线程
+- Serial TX 阻塞等待自己的 idx receiver；ZMQ SUB 只写 `SharedData`，当前未连接到该 sender，因此不会触发 ZMQ → UART 中继
 
 ### `laser/` / `pointcloud/` / `widgets/`
 - 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板

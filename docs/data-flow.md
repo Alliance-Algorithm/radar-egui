@@ -66,11 +66,10 @@
 alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB ──直接写──▶ SharedReader 所有的
                                                                       Arc<Mutex<SharedData>>
                                                                                 │
-                                                ┌───────────────────────────────┤
-                                                ▼                               ▼
-                                         SDR 标签 (egui)                 Serial TX 轮询
-                                         · 小地图(位置)                  · UART 中继
-                                         · 血量/弹药/经济/增益面板
+                                                                                ▼
+                                                                         SDR 标签 (egui)
+                                                                         · 小地图(位置)
+                                                                         · 血量/弹药/经济/增益面板
 ```
 
 **数据**：`ReceiveSdr` (JSON, cmd_id=0x2002) → 6 子结构体：
@@ -87,18 +86,15 @@ alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB ──直接写─�
 ### 2.2 串口（裁判系统）数据链路
 
 ```
-DJI Referee ◀════ UART 115200bps ═══▶ radar-egui Serial RX/TX
-                                           │
-                                           ▼
-                             SharedReader 所有的 Arc<Mutex<SharedData>>
-                                           │
-                          ┌────────────────┴────────────────┐
-                          ▼                                 ▼
-                 idx 通知 → ZMQ PUB                    Serial UI 最新快照
-                 (查询 SharedData → JSON)              (仅串口打开时记录变化)
+DJI Referee ──UART──▶ Serial RX ──▶ parser ──写──▶ SharedReader 所有的 Arc<Mutex<SharedData>>
+                                      │                              │
+                                      ├─ idx ──▶ ZMQ PUB             └─▶ Serial UI 独立读取最新快照
+                                      │          (查询 SharedData)       (仅串口打开时记录变化)
+                                      └─ idx ──▶ Serial TX
+                                                 (查询 SharedData → UART)
 ```
 
-串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。
+串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。`open_serial()` 把 ZMQ PUB sender 和 Serial TX sender 一并交给 parser，所以每个完成帧的 idx 分别通知这两个消费者；idx 不路由到 UI。
 
 **帧格式**：
 ```
@@ -200,11 +196,12 @@ Rerun/gRPC 仅是可选可视化输出，不是 ROS2 Radar、LidarLocation 或�
 ### 3.2 串口 ↔ ZMQ 桥接
 
 ```
-Serial RX → parser → SharedData + tx.send(idx) → ZMQ PUB 查询 SharedData → JSON (:5557)
-ZMQ SUB ← JSON → SharedData → Serial TX (10ms 读取最新快照) → serial_package() → UART TX
+Serial RX → parser → SharedData + tx.send(idx) ─┬→ ZMQ PUB 查询 SharedData → JSON (:5557)
+                                                └→ Serial TX 查询 SharedData → serial_package() → UART TX
+ZMQ SUB ← JSON → SharedData → UI 最新快照
 ```
 
-Parser 的 `usize` 通知索引只决定已完成帧触发哪类发布/发送；`SharedData` 始终是数据真源。协议索引包括：
+Parser 的 `usize` 通知索引只决定已完成帧触发哪类发布/发送；`SharedData` 始终是数据真源。Serial TX 阻塞等待自己的 idx receiver；ZMQ SUB 当前只写 `SharedData`，没有连接到该 sender，所以 ZMQ 接收不会触发 UART 发送。协议索引包括：
 ```
 0=GAME_STATE 1=GAME_RESULT 2=SITE_EVENT 3=DART 4=RADAR_MARK
 5=RADAR_SYNC 6=ROBOT_INTERACT 7=RADAR_DECISION 8=MINIMAP

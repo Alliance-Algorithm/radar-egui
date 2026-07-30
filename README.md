@@ -170,21 +170,16 @@ rerun assets/map.rrd
 
 ## ZMQ 双向通信架构
 
-ZMQ SUB 和串口共同更新统一的 `SharedData`。Serial parser 完成一帧后通过 `std::sync::mpsc::Sender<usize>` 通知 ZMQ PUB/Serial TX 查询共享状态；这条通知 channel 与上文进程控制使用的 Tokio channel 是不同链路：
+ZMQ SUB 和串口共同更新统一的 `SharedData`。Serial parser 完成一帧后通过 `open_serial()` 配置的两个 `std::sync::mpsc::Sender<usize>`，分别通知 ZMQ PUB 和 Serial TX 查询共享状态；Serial UI 则独立读取 `SharedData` 快照，不接收 idx。这条通知 channel 与上文进程控制使用的 Tokio channel 是不同链路：
 
 ```text
-串口解析器                     ZMQ PUB 线程
-    │                              │
-    ├─ write SharedData ──────────┤
-    ├─ tx.send(idx) ──────────────┤ 读 → JSON → zmq_send → C++/Python
-                                   │
-                                   │
-ZMQ SUB 线程                    串口 TX 线程
-    │                              │
-    ├─ zmq_recv ← C++/Python      │
-    ├─ JSON 解析 → write SharedData│
-    └─────────────────────────────┤ 10ms 读取最新共享状态 → UART
+串口解析器 ── write SharedData ──┬── tx.send(idx) ──▶ ZMQ PUB 查询 SharedData → JSON
+                                 └── tx.send(idx) ──▶ Serial TX 查询 SharedData → UART
+
+ZMQ SUB ── JSON 解析 ──▶ write SharedData ──▶ UI 独立读取最新快照
 ```
+
+当前 ZMQ SUB 没有连接到 Serial TX 的 idx sender；Serial TX 阻塞在自己的 receiver 上，因此 ZMQ 写入本身不会触发 UART 发送。这是现有后端限制，不应描述为已接通的 ZMQ → UART 中继。
 
 ## 数据源
 
