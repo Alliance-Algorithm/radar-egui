@@ -10,9 +10,10 @@ use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::{
     RobotInteractionData, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
     SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
-    SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
-    IDX_RADAR_AUTONOMOUS_DECISION_SYNC, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-    RADAR_INTERACTION_SUBCONTEXT_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
+    SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE,
+    IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
+    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+    RADAR_MARK_PROCESS_CMD_ID,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
