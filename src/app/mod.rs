@@ -91,8 +91,8 @@ pub struct RadarApp {
     serial_baud: u32,
     serial_open: bool,
     serial_error: Option<String>,
-    serial_parse_enable: [bool; 6],
     serial_frame_log: std::collections::VecDeque<crate::widgets::SerialFrameLogLine>,
+    serial_last_observed: Option<serial_workspace::SerialObservedState>,
     serial_rx_handle: Option<std::thread::JoinHandle<()>>,
     serial_tx_handle: Option<std::thread::JoinHandle<()>>,
     serial_stop: Option<Arc<AtomicBool>>,
@@ -172,8 +172,8 @@ impl Default for RadarApp {
             serial_baud: 115_200,
             serial_open: false,
             serial_error: None,
-            serial_parse_enable: [true; 6],
             serial_frame_log: std::collections::VecDeque::new(),
+            serial_last_observed: None,
             serial_rx_handle: None,
             serial_tx_handle: None,
             serial_stop: None,
@@ -335,6 +335,9 @@ impl eframe::App for RadarApp {
         self.ensure_logo_texture(ctx);
         let snapshot = self.shared_reader.snapshot();
         self.update_connection_status(&snapshot);
+        if self.serial_open {
+            self.update_serial_state_log(&snapshot);
+        }
         self.apply_theme(ctx);
         if self.active_tab == ActiveTab::Radar {
             self.update_pointcloud();

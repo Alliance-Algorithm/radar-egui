@@ -5,6 +5,110 @@ use crate::shared_data::SharedData;
 use crate::theme;
 use crate::widgets::{SerialFrameLogLine, SerialLogKind, SerialPanel};
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct SerialObservedState {
+    game: (u8, u8, u16, u64),
+    site: (u8, u8, u8, u8, u8, u16, u8, u8, u8, u8, u8),
+    radar: [u8; 5],
+}
+
+impl SerialObservedState {
+    fn from_shared(data: &SharedData) -> Self {
+        let game = &data.game_state;
+        let site = &data.site_event;
+        let radar = &data.radar_mark_process;
+        Self {
+            game: (
+                game.game_type,
+                game.game_progress,
+                game.stage_remain_time,
+                game.sync_timestamp,
+            ),
+            site: (
+                site.supply_zone_status,
+                site.energy_small_status,
+                site.energy_large_status,
+                site.central_highland_status,
+                site.trapezoid_highland_status,
+                site.dart_hit_time,
+                site.dart_hit_target,
+                site.center_gain_status,
+                site.fortress_gain_status,
+                site.outpost_gain_status,
+                site.base_gain_status,
+            ),
+            radar: [
+                radar.opponent_hero_vulnerable,
+                radar.opponent_engineer_vulnerable,
+                radar.opponent_infantry_3_vulnerable,
+                radar.opponent_infantry_4_vulnerable,
+                radar.opponent_sentry_vulnerable,
+            ],
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SerialLogEvent {
+    kind: SerialLogKind,
+    text: String,
+}
+
+impl SerialLogEvent {
+    fn rx(text: impl Into<String>) -> Self {
+        Self {
+            kind: SerialLogKind::Rx,
+            text: text.into(),
+        }
+    }
+}
+
+fn diff_serial_state(
+    previous: &SerialObservedState,
+    current: &SerialObservedState,
+) -> Vec<SerialLogEvent> {
+    let mut events = Vec::new();
+    if previous.game != current.game {
+        events.push(SerialLogEvent::rx(format!(
+            "0x0001 GameState · remain={}s",
+            current.game.2
+        )));
+    }
+    if previous.site != current.site {
+        events.push(SerialLogEvent::rx(format!(
+            "0x0101 SiteEvent · supply={} energy={}/{} highland={}/{} dart={}:{} center={} fortress={} outpost={} base={}",
+            current.site.0,
+            current.site.1,
+            current.site.2,
+            current.site.3,
+            current.site.4,
+            current.site.5,
+            current.site.6,
+            current.site.7,
+            current.site.8,
+            current.site.9,
+            current.site.10,
+        )));
+    }
+    if previous.radar != current.radar {
+        const LABELS: [&str; 5] = ["Hero", "Engineer", "Infantry 3", "Infantry 4", "Sentry"];
+        let changes = LABELS
+            .iter()
+            .zip(current.radar)
+            .zip(previous.radar)
+            .filter(|((_, current), previous)| current != previous)
+            .map(|((label, value), _)| {
+                format!("{label}={}", if value != 0 { "vulnerable" } else { "idle" })
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        events.push(SerialLogEvent::rx(format!(
+            "0x020C RadarMarkProcess · {changes}"
+        )));
+    }
+    events
+}
+
 impl RadarApp {
     pub(super) fn show_serial_workspace(&mut self, ctx: &egui::Context, snapshot: &SharedData) {
         self.show_left_rail(ctx);
@@ -163,34 +267,6 @@ impl RadarApp {
                 });
 
                 ui.add_space(12.0);
-                white_card(ui, "解析开关", |ui| {
-                    let labels = [
-                        ("0x0001 比赛状态", 0usize),
-                        ("0x0101 场地事件", 1),
-                        ("0x020C 雷达标记", 2),
-                        ("0x0305 小地图雷达", 3),
-                        ("0x0A0x SDR 透传", 4),
-                        ("写回 ZMQ PUB", 5),
-                    ];
-                    for (label, idx) in labels {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(label)
-                                    .color(theme::text_muted())
-                                    .size(12.0),
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.checkbox(&mut self.serial_parse_enable[idx], "");
-                                },
-                            );
-                        });
-                        ui.add_space(4.0);
-                    }
-                });
-
-                ui.add_space(12.0);
                 SerialPanel::new().show_minimap_sidebar(ui, &snapshot.minimap_receive);
                 ui.add_space(12.0);
             });
@@ -206,6 +282,16 @@ impl RadarApp {
             self.serial_frame_log.pop_front();
         }
     }
+
+    pub(super) fn update_serial_state_log(&mut self, data: &SharedData) {
+        let current = SerialObservedState::from_shared(data);
+        if let Some(previous) = &self.serial_last_observed {
+            for event in diff_serial_state(previous, &current) {
+                self.push_serial_log(event.kind, event.text);
+            }
+        }
+        self.serial_last_observed = Some(current);
+    }
 }
 
 fn chrono_like_now() -> String {
@@ -218,4 +304,30 @@ fn chrono_like_now() -> String {
     let minutes = (secs / 60) % 60;
     let seconds = secs % 60;
     format!("{h:02}:{minutes:02}:{seconds:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serial_diff_logs_only_changed_observable_groups() {
+        let before = SerialObservedState::default();
+        let mut after = before.clone();
+        after.game.2 = 419;
+        after.radar[0] = 1;
+        assert_eq!(
+            diff_serial_state(&before, &after),
+            vec![
+                SerialLogEvent::rx("0x0001 GameState · remain=419s"),
+                SerialLogEvent::rx("0x020C RadarMarkProcess · Hero=vulnerable"),
+            ]
+        );
+    }
+
+    #[test]
+    fn identical_serial_snapshots_do_not_create_fake_frames() {
+        let state = SerialObservedState::default();
+        assert!(diff_serial_state(&state, &state).is_empty());
+    }
 }
