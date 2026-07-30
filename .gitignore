@@ -9,6 +9,7 @@ linux/
 macos/
 build/
 .omo/
+.worktrees/
 *.pdf
 LearnLog.md
 .mimocode/serial_dump.log
