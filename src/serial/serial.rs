@@ -17,6 +17,8 @@ use std::thread;
 use std::time::Duration;
 
 const SERIAL_READ_TIMEOUT: Duration = Duration::from_millis(50);
+const SERIAL_WRITE_TIMEOUT: Duration = Duration::from_millis(50);
+const SERIAL_TX_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Serial port handle for raw byte I/O via `serial2`.
 pub struct Serial {
@@ -37,7 +39,7 @@ impl Serial {
         })?;
 
         port.set_read_timeout(SERIAL_READ_TIMEOUT)?;
-        port.set_write_timeout(SERIAL_READ_TIMEOUT)?;
+        port.set_write_timeout(SERIAL_WRITE_TIMEOUT)?;
 
         Ok(Self {
             serial_port: port,
@@ -85,6 +87,7 @@ impl Serial {
                 }
                 Ok(n) => remaining = &remaining[n..],
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(e) => {
                     log::error!("Serial write error: {e}");
                     break;
@@ -95,7 +98,7 @@ impl Serial {
     /// Clone the underlying serial port for concurrent read/write.
     pub fn clone_serial_port(&self) -> std::io::Result<Self> {
         let mut serial_port = self.serial_port.try_clone()?;
-        serial_port.set_write_timeout(SERIAL_READ_TIMEOUT)?;
+        serial_port.set_write_timeout(SERIAL_WRITE_TIMEOUT)?;
         Ok(Self {
             serial_port,
             #[cfg(test)]
@@ -109,7 +112,7 @@ impl Serial {
             .set_read_timeout(SERIAL_READ_TIMEOUT)
             .expect("configure test serial read timeout");
         serial_port
-            .set_write_timeout(SERIAL_READ_TIMEOUT)
+            .set_write_timeout(SERIAL_WRITE_TIMEOUT)
             .expect("configure test serial write timeout");
         Self {
             serial_port,
@@ -151,7 +154,7 @@ pub fn serial_start_receiver(
                 }
             }
         }
-        worker_health.store(false, Ordering::Release);
+        worker_health.store(false, Ordering::Relaxed);
     })
 }
 
@@ -169,7 +172,7 @@ pub fn serial_start_transmitter(
             if stop.load(Ordering::Relaxed) {
                 break;
             }
-            let idx = match tx_rx.recv_timeout(SERIAL_READ_TIMEOUT) {
+            let idx = match tx_rx.recv_timeout(SERIAL_TX_POLL_INTERVAL) {
                 Ok(idx) => idx,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -193,7 +196,15 @@ pub fn serial_start_transmitter(
                 ),
                 6 => {
                     let mut sub_data = data.robot_interaction.subcontext_data.clone();
-                    sub_data.resize(112, 0);
+                    if sub_data.len() > 112 {
+                        log::warn!(
+                            "Serial TX subcontext_data truncated from {} to 112 bytes",
+                            sub_data.len()
+                        );
+                        sub_data.truncate(112);
+                    } else {
+                        sub_data.resize(112, 0);
+                    }
                     let radar_id = if data.radar_side == "blue" {
                         DeviceId::BlueRadar
                     } else {
@@ -226,8 +237,15 @@ pub fn serial_start_transmitter(
                         };
                         let data_bytes = interaction.to_bytes();
                         let frame = serial_package(ROBOT_INTERACTION_CMD_ID, data_bytes);
-                        if let Ok(frame_bytes) = frame.to_bytes() {
-                            serial.send_data_interruptible(&frame_bytes, &stop);
+                        match frame.to_bytes() {
+                            Ok(frame_bytes) => {
+                                serial.send_data_interruptible(&frame_bytes, &stop);
+                            }
+                            Err(error) => {
+                                log::warn!(
+                                    "Serial TX failed to encode interaction frame for {target:?}: {error}"
+                                );
+                            }
                         }
                         for _ in 0..10 {
                             if stop.load(Ordering::Relaxed) {
@@ -255,7 +273,7 @@ pub fn serial_start_transmitter(
                 }
             }
         }
-        worker_health.store(false, Ordering::Release);
+        worker_health.store(false, Ordering::Relaxed);
     })
 }
 
@@ -279,11 +297,8 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn idle_receiver_stops_after_stop_is_set() {
-        let serial = Serial::new(SerialConfig {
-            port_name: "/dev/ptmx".into(),
-            baud_rate: 115_200,
-        })
-        .expect("open test serial device");
+        let (input, _output) = serial2::SerialPort::pair().expect("open test serial pair");
+        let serial = Serial::from_port(input);
         let shared = Arc::new(Mutex::new(SharedData::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let handle = serial_start_receiver(
@@ -301,11 +316,8 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn idle_transmitter_stops_after_stop_is_set() {
-        let serial = Serial::new(SerialConfig {
-            port_name: "/dev/ptmx".into(),
-            baud_rate: 115_200,
-        })
-        .expect("open test serial device");
+        let (input, _output) = serial2::SerialPort::pair().expect("open test serial pair");
+        let serial = Serial::from_port(input);
         let shared = Arc::new(Mutex::new(SharedData::default()));
         let (_tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
@@ -324,11 +336,8 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn multi_frame_transmitter_stops_between_targets() {
-        let serial = Serial::new(SerialConfig {
-            port_name: "/dev/ptmx".into(),
-            baud_rate: 115_200,
-        })
-        .expect("open test serial device");
+        let (input, _output) = serial2::SerialPort::pair().expect("open test serial pair");
+        let serial = Serial::from_port(input);
         let shared = Arc::new(Mutex::new(SharedData::default()));
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
@@ -357,7 +366,7 @@ mod tests {
             done_tx.send(()).expect("send worker completion");
         });
         done_rx
-            .recv_timeout(Duration::from_millis(80))
+            .recv_timeout(Duration::from_millis(500))
             .expect("multi-frame serial worker did not stop promptly");
     }
 

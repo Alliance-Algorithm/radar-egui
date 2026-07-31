@@ -300,7 +300,7 @@ impl RadarApp {
             });
     }
 
-    fn push_serial_log(&mut self, kind: SerialLogKind, text: String) {
+    pub(super) fn push_serial_log(&mut self, kind: SerialLogKind, text: String) {
         let ts = chrono_like_now();
         push_bounded_serial_log(
             &mut self.serial_frame_log,

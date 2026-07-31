@@ -28,19 +28,30 @@ changing the existing DJI protocol, parser, or automatic notification flow.
 - Existing frame notifications remain unchanged: parsed frames update
   `SharedData` and notify ZMQ PUB and Serial TX through the existing channels.
 - No manual protocol-send controls are added in this change.
+- Time constraints:
+  - `SERIAL_READ_TIMEOUT` (50 ms) for reads only.
+  - `SERIAL_WRITE_TIMEOUT` (50 ms) for writes.
+  - `SERIAL_TX_POLL_INTERVAL` (50 ms) for the TX channel poll.
+  - Worker shutdown tests accept up to 500 ms for `join()` after the stop flag.
 
 ## Error Handling
 
 - The close path is idempotent and safe when called after a failed open.
-- Worker join failures are not expected from `JoinHandle::join`, but cleanup
-  must still clear state if a worker panics.
+- `JoinHandle::join` can return `Err` when a worker panics; cleanup must still
+  clear handles and state, and any such failure is recorded or handled rather
+  than assumed away.
 - A stopped or failed worker must not leave the UI permanently showing an open
-  connection on the next frame.
+  connection on the next frame; an automatic close records an error log entry
+  with the same visibility as the manual close path.
 
 ## Testing
 
 - Test the receiver/transmitter stop behavior with the existing serial test
   infrastructure where practical.
 - Test that opening failure leaves `serial_open` false and no worker handles.
-- Test the existing parser notification behavior remains intact.
+- Test worker-health failure reconciliation, a successful reopen after close,
+  and repeated teardown/close idempotence.
+- Test the existing parser notification behavior remains intact: a valid DJI
+  frame updates `SharedData` and both notification channels receive the
+  expected index.
 - Run `cargo fmt --all --check`, `cargo check`, and `cargo test`.

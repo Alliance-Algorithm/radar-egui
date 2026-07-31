@@ -12,6 +12,7 @@ use crate::services::process_control::ProcessControl;
 use crate::services::{ProcessSendError, StartAllOptions, TeamSide};
 use crate::state::{LaserObservationReader, PointCloudFrameReader, SharedReader};
 use crate::theme;
+use crate::widgets::SerialLogKind;
 
 mod assets;
 mod chrome;
@@ -251,7 +252,12 @@ impl RadarApp {
                     let shared = self.shared_reader.inner();
                     let stop = Arc::new(AtomicBool::new(false));
                     let worker_health = Arc::new(AtomicBool::new(true));
-                    let pub_tx = self.zmq_pub.pub_tx.lock().unwrap().clone();
+                    let pub_tx = self
+                        .zmq_pub
+                        .pub_tx
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     let (tx_tx, tx_rx) = std::sync::mpsc::channel();
                     let notify_all = match pub_tx {
                         Some(zmq_tx) => vec![zmq_tx, tx_tx],
@@ -326,6 +332,7 @@ impl RadarApp {
                 .is_some_and(std::thread::JoinHandle::is_finished);
         if self.serial_open && (worker_failed || worker_finished) {
             self.serial_error = Some("serial worker stopped".to_owned());
+            self.push_serial_log(SerialLogKind::Err, "serial worker stopped".to_owned());
             close_serial_workers(
                 &mut self.serial_stop,
                 &mut self.serial_rx_handle,
@@ -451,6 +458,7 @@ mod tests {
         let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
         let mut app = RadarApp::default();
         app.zmq_pub.stop();
+        app.zmq_sub.stop();
         (guard, app)
     }
 
@@ -534,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn close_serial_and_on_exit_clear_connection_state_and_all_workers() {
+    fn close_serial_clears_connection_state_and_all_workers() {
         let (_zmq_guard, mut app) = radar_app_for_test();
         let stop = install_serial_lifecycle_state(&mut app);
 
@@ -546,13 +554,28 @@ mod tests {
         assert!(app.serial_rx_handle.is_none());
         assert!(app.serial_tx_handle.is_none());
         assert!(stop.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn repeated_close_serial_is_harmless() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        install_serial_lifecycle_state(&mut app);
 
         app.close_serial();
+        app.close_serial();
+
         assert!(!app.serial_open);
         assert!(app.serial_error.is_none());
         assert!(app.serial_stop.is_none());
         assert!(app.serial_rx_handle.is_none());
         assert!(app.serial_tx_handle.is_none());
+    }
+
+    #[test]
+    fn open_serial_failure_after_close_keeps_connection_closed() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        install_serial_lifecycle_state(&mut app);
+        app.close_serial();
 
         app.serial_port_name = "/definitely-not-a-serial-device".to_owned();
         app.open_serial();
@@ -561,7 +584,11 @@ mod tests {
         assert!(app.serial_stop.is_none());
         assert!(app.serial_rx_handle.is_none());
         assert!(app.serial_tx_handle.is_none());
+    }
 
+    #[test]
+    fn on_exit_clears_connection_state_and_workers_repeatedly() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
         let stop = install_serial_lifecycle_state(&mut app);
         eframe::App::on_exit(&mut app, None);
         eframe::App::on_exit(&mut app, None);

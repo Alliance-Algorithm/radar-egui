@@ -15,6 +15,11 @@
 - Do not add manual protocol-send controls in this change.
 - The close path must be idempotent and must not block forever on an idle RX or TX worker.
 - Preserve the existing port and baud selectors.
+- Time constraints used consistently by implementation and tests:
+  - `SERIAL_READ_TIMEOUT` = 50 ms, used only for the serial read timeout.
+  - `SERIAL_WRITE_TIMEOUT` = 50 ms, used for write timeouts.
+  - `SERIAL_TX_POLL_INTERVAL` = 50 ms, used for the TX channel `recv_timeout` poll.
+  - Worker stop assertions accept a 500 ms upper bound for `join()` after the stop flag is set.
 
 ---
 
@@ -74,7 +79,7 @@ git commit -m "fix: make serial workers interruptible"
 
 - [ ] **Step 1: Write failing lifecycle tests**
 
-Add tests for the state contract: opening failure leaves `serial_open == false`, a close operation clears `serial_open`, `serial_stop`, RX handle, and TX handle, and calling close while already closed is harmless. Use test-only constructors or helpers rather than opening a real device.
+Add tests for the state contract: opening failure leaves `serial_open == false`, a close operation clears `serial_open`, `serial_stop`, RX handle, and TX handle, and calling close while already closed is harmless. Cover worker-health failure reconciliation, a successful reopen after close, and repeated teardown. Use test-only constructors or helpers rather than opening a real device.
 
 - [ ] **Step 2: Run the tests to verify the failure**
 
@@ -88,7 +93,7 @@ Render `Close serial` when `serial_open` is true and `Open serial` otherwise. On
 
 - [ ] **Step 4: Make cleanup idempotent and teardown-safe**
 
-Ensure `close_serial()` always clears handles and state after signaling the stop flag, including when a worker panics. Add the app teardown path that calls `close_serial()` exactly once through the existing app lifecycle mechanism. Do not alter the parser's notification channels.
+Ensure `close_serial()` always clears handles and state after signaling the stop flag, including when a worker panics. Add the app teardown path through the existing eframe lifecycle hook; `close_serial()` must remain safe and idempotent when teardown invokes it repeatedly, including repeated `on_exit` calls. Do not alter the parser's notification channels.
 
 - [ ] **Step 5: Run the lifecycle tests to verify the fix**
 
