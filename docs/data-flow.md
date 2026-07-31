@@ -24,7 +24,7 @@
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────────┴──────┐  │
 │  │ ZMQ SUB/PUB │  │ Serial RX/TX│  │ Video SHM   │  │ PCD SHM         │  │
 │  │ :5555/5556  │  │ (serial2)   │  │ /laser_frame│  │ /pointcloud_    │  │
-│  │ :5557(PUB)  │  │             │  │             │  │ frame           │  │
+│  │ :5558(PUB)  │  │             │  │             │  │ frame           │  │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────┘  │
 └─────────┼─────────────────┼────────────────┼─────────────────────┼─────────┘
           │                 │                │                     │
@@ -39,7 +39,7 @@
           ▼                          ▼
 ┌───────────────────┐     ┌───────────────────────┐
 │ alliance_radar_   │     │ C++/Python consumers  │
-│ location_lidar    │     │ ZMQ SUB :5557         │
+│ location_lidar    │     │ ZMQ SUB :5558         │
 │ (ROS2 Radar)      │     │ 比赛状态/雷达标记等   │
 │ ZMQ PUB :5556     │     │                       │
 │ (LidarLocation)   │     │                       │
@@ -198,7 +198,7 @@ Rerun/gRPC 仅是可选可视化输出，不是 ROS2 Radar、LidarLocation 或�
 ### 3.2 串口 ↔ ZMQ 桥接
 
 ```
-Serial RX → parser → SharedData + tx.send(idx) ─┬→ ZMQ PUB 查询 SharedData → JSON (:5557)
+Serial RX → parser → SharedData + tx.send(idx) ─┬→ ZMQ PUB 查询 SharedData → JSON (:5558)
                                                 └→ Serial TX 查询 SharedData → serial_package() → UART TX
 ZMQ SUB ← JSON → SharedData → UI 最新快照
 ```
@@ -246,7 +246,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → Tokio ProcessRuntime actor → Sc
 | `model_to_map` | radar-egui | SHM | `/pointcloud_frame` | PCD + 法向量 |
 | DJI Referee | radar-egui | UART | 串口 | 裁判协议帧 |
 | radar-egui | laser_guidance | FIFO | `/tmp/laser_cmd` | 配置命令 |
-| radar-egui | 外部 | ZMQ PUB | :5557 | TransmitGameState/Mark JSON |
+| radar-egui | 外部 | ZMQ PUB | :5558 | TransmitGameState/Mark JSON |
 | radar-egui | DJI Referee | UART | 串口 | 中继帧 |
 
 ---

@@ -101,6 +101,8 @@ pub struct RadarApp {
     serial_tx_handle: Option<std::thread::JoinHandle<()>>,
     serial_stop: Option<Arc<AtomicBool>>,
     serial_worker_health: Option<Arc<AtomicBool>>,
+    serial_tx_notify: Option<std::sync::mpsc::Sender<usize>>,
+    auto_double_weakness_sent_chance: u8,
 }
 
 #[derive(PartialEq)]
@@ -120,7 +122,7 @@ impl Default for RadarApp {
             shared.clone(),
         );
 
-        let zmq_pub = ZmqPubRuntime::start("tcp://*:5557", shared.clone());
+        let zmq_pub = ZmqPubRuntime::start("tcp://*:5558", shared.clone());
 
         if let Ok(mut guard) = shared.lock() {
             guard.radar_side = "red".to_string();
@@ -185,6 +187,8 @@ impl Default for RadarApp {
             serial_tx_handle: None,
             serial_stop: None,
             serial_worker_health: None,
+            serial_tx_notify: None,
+            auto_double_weakness_sent_chance: 0,
         }
     }
 }
@@ -264,8 +268,8 @@ impl RadarApp {
                         .clone();
                     let (tx_tx, tx_rx) = std::sync::mpsc::channel();
                     let notify_all = match pub_tx {
-                        Some(zmq_tx) => vec![zmq_tx, tx_tx],
-                        None => vec![tx_tx],
+                        Some(zmq_tx) => vec![zmq_tx, tx_tx.clone()],
+                        None => vec![tx_tx.clone()],
                     };
                     let rx = serial_start_receiver(
                         port,
@@ -285,6 +289,8 @@ impl RadarApp {
                     self.serial_tx_handle = Some(tx);
                     self.serial_stop = Some(stop);
                     self.serial_worker_health = Some(worker_health);
+                    self.serial_tx_notify = Some(tx_tx);
+                    self.auto_double_weakness_sent_chance = 0;
                     self.serial_open = true;
                     self.serial_error = None;
                     log::info!("Serial opened on {}", self.serial_port_name);
@@ -316,6 +322,8 @@ impl RadarApp {
             &mut self.serial_tx_handle,
         );
         self.serial_worker_health = None;
+        self.serial_tx_notify = None;
+        self.auto_double_weakness_sent_chance = 0;
         self.serial_open = false;
         self.serial_error = None;
         log::info!("Serial closed");
@@ -343,7 +351,37 @@ impl RadarApp {
                 &mut self.serial_tx_handle,
             );
             self.serial_worker_health = None;
+            self.serial_tx_notify = None;
+            self.auto_double_weakness_sent_chance = 0;
             self.serial_open = false;
+        }
+    }
+
+    /// 自动触发双倍易伤：有机会(0x020E chance>0)且未激活(active==0)且尚未对当前
+    /// 机会数发过请求时，radar_cmd 单调 +1 并发送 0x0121（雷达自主决策指令）。
+    fn check_auto_double_weakness(&mut self) {
+        let Some(tx_notify) = self.serial_tx_notify.as_ref() else {
+            return;
+        };
+        let inner = self.shared_reader.inner();
+        let Ok(mut shared) = inner.lock() else {
+            return;
+        };
+        let sync = &shared.radar_autonomous_decision_sync;
+        let chance = sync.double_weakness_chance;
+        if chance > 0
+            && sync.double_weakness_active == 0
+            && self.auto_double_weakness_sent_chance != chance
+        {
+            shared.radar_autonomous_decision.radar_cmd =
+                shared.radar_autonomous_decision.radar_cmd.wrapping_add(1);
+            log::info!(
+                "Auto trigger double weakness: radar_cmd={}, chance={}",
+                shared.radar_autonomous_decision.radar_cmd,
+                chance
+            );
+            self.auto_double_weakness_sent_chance = chance;
+            let _ = tx_notify.send(crate::shared_data::IDX_RADAR_AUTONOMOUS_DECISION_DATA);
         }
     }
 
@@ -411,6 +449,7 @@ impl eframe::App for RadarApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.reconcile_serial_workers();
+        self.check_auto_double_weakness();
         self.setup_fonts(ctx);
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
@@ -456,7 +495,7 @@ mod tests {
 
     static ZMQ_TEST_PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5557`; tests
+    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5558`; tests
     /// must serialize that window and release the port before dropping the app.
     fn radar_app_for_test() -> (std::sync::MutexGuard<'static, ()>, RadarApp) {
         let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
@@ -486,6 +525,85 @@ mod tests {
         app.serial_open = true;
         app.serial_error = Some("stale serial error".to_owned());
         stop_ref
+    }
+
+    fn set_double_weakness(app: &mut RadarApp, chance: u8, active: u8) {
+        let inner = app.shared_reader.inner();
+        let mut shared = inner.lock().unwrap();
+        shared.radar_autonomous_decision_sync.double_weakness_chance = chance;
+        shared.radar_autonomous_decision_sync.double_weakness_active = active;
+    }
+
+    #[test]
+    fn auto_double_weakness_triggers_once_per_chance_when_idle() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        let (tx_tx, tx_rx) = std::sync::mpsc::channel();
+        app.serial_tx_notify = Some(tx_tx);
+
+        set_double_weakness(&mut app, 2, 0);
+        app.check_auto_double_weakness();
+        assert_eq!(
+            tx_rx.try_recv().unwrap(),
+            crate::shared_data::IDX_RADAR_AUTONOMOUS_DECISION_DATA
+        );
+        let inner = app.shared_reader.inner();
+        let shared = inner.lock().unwrap();
+        assert_eq!(shared.radar_autonomous_decision.radar_cmd, 1);
+        drop(shared);
+        drop(inner);
+
+        app.check_auto_double_weakness();
+        assert!(tx_rx.try_recv().is_err());
+        let inner = app.shared_reader.inner();
+        let shared = inner.lock().unwrap();
+        assert_eq!(shared.radar_autonomous_decision.radar_cmd, 1);
+        drop(shared);
+        drop(inner);
+    }
+
+    #[test]
+    fn auto_double_weakness_waits_while_active_and_stops_when_out_of_chances() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        let (tx_tx, tx_rx) = std::sync::mpsc::channel();
+        app.serial_tx_notify = Some(tx_tx);
+
+        set_double_weakness(&mut app, 1, 1);
+        app.check_auto_double_weakness();
+        assert!(tx_rx.try_recv().is_err());
+
+        set_double_weakness(&mut app, 0, 0);
+        app.check_auto_double_weakness();
+        assert!(tx_rx.try_recv().is_err());
+
+        let inner = app.shared_reader.inner();
+        let shared = inner.lock().unwrap();
+        assert_eq!(shared.radar_autonomous_decision.radar_cmd, 0);
+    }
+
+    #[test]
+    fn auto_double_weakness_triggers_second_time_after_chance_consumed() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        let (tx_tx, tx_rx) = std::sync::mpsc::channel();
+        app.serial_tx_notify = Some(tx_tx);
+
+        set_double_weakness(&mut app, 2, 0);
+        app.check_auto_double_weakness();
+        tx_rx.try_recv().unwrap();
+
+        set_double_weakness(&mut app, 1, 1);
+        app.check_auto_double_weakness();
+        assert!(tx_rx.try_recv().is_err());
+
+        set_double_weakness(&mut app, 1, 0);
+        app.check_auto_double_weakness();
+        assert_eq!(
+            tx_rx.try_recv().unwrap(),
+            crate::shared_data::IDX_RADAR_AUTONOMOUS_DECISION_DATA
+        );
+
+        let inner = app.shared_reader.inner();
+        let shared = inner.lock().unwrap();
+        assert_eq!(shared.radar_autonomous_decision.radar_cmd, 2);
     }
 
     #[test]
