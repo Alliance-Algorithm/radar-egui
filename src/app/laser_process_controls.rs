@@ -66,6 +66,7 @@ impl RadarApp {
             ui.checkbox(&mut self.laser_auto, "Laser Auto");
             ui.checkbox(&mut self.stream_on_start, "启动时推流");
             ui.checkbox(&mut self.record_on_start, "启动时内录");
+            ui.checkbox(&mut self.radar_record_on_start, "Radar 相机内录");
             ui.add_space(6.0);
 
             let scripts = [
@@ -177,6 +178,7 @@ impl RadarApp {
                     self.stream_on_start,
                     self.record_on_start,
                     self.laser_auto,
+                    self.radar_record_on_start,
                 );
                 let result = self.process_control.start_all(options);
                 self.store_process_command_result(result);
@@ -247,9 +249,9 @@ impl RadarApp {
                     .clicked();
                 if clicked {
                     let result = match (component, managed) {
-                        (ProcessComponent::Radar, false) => {
-                            self.process_control.start_radar(self.team_side)
-                        }
+                        (ProcessComponent::Radar, false) => self
+                            .process_control
+                            .start_radar(self.team_side, self.radar_record_on_start),
                         (ProcessComponent::Sdr, false) => {
                             self.process_control.start_sdr(self.team_side)
                         }

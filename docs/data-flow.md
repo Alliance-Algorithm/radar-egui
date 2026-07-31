@@ -151,8 +151,10 @@ laser_guidance ──→ ZMQ PUB :5556 → radar-egui (ReceiveLaser JSON)
 ```
 source /opt/ros/jazzy/setup.bash
 source ros_ws/install/setup.bash
-exec ros2 launch radar_bringup competition.launch.py side:=<red|blue>
+exec ros2 launch radar_bringup competition.launch.py side:=<red|blue> enable_raw_recording:=<true|false>
 ```
+
+`enable_raw_recording` 由 UI「Radar 相机内录」选项控制，默认 `false`；录制目录、分辨率、码率等参数由 radar 仓库 `competition.launch.py` 内部默认值管理。
 
 **数据链路**：
 
@@ -225,7 +227,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → Tokio ProcessRuntime actor → Sc
 | UI 动作 | 代码 | 外部进程 |
 |---------|------|----------|
 | Start SDR | `start_sdr(enemy)` | `../alliance_radar_sdr` → `python3 thread_init.py --enemySide …` |
-| Start Radar | `start_radar(side)` | 已校验 Radar root → `ros2 launch radar_bringup competition.launch.py side:=…` |
+| Start Radar | `start_radar(side, record)` | 已校验 Radar root → `ros2 launch radar_bringup competition.launch.py side:=… enable_raw_recording:=…` |
 | Start Laser | `start(Competition|…)` | 已校验 Laser root 的当前 `.script/…` + FIFO `/tmp/laser_cmd` |
 | Start All | `start_all(StartAllOptions)` | Radar → 1s → SDR → 1s → Competition Laser → FIFO 配置 |
 | Retry Failed | `retry_failed()` | 从失败的 sequence step 继续，不重启已完成的前序步骤 |

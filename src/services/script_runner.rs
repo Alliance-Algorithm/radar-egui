@@ -117,7 +117,7 @@ impl ScriptRunner {
 
     // ── ROS2 Radar ────────────────────────────────────────────────────
 
-    pub fn start_radar(&mut self, side: &str) -> io::Result<()> {
+    pub fn start_radar(&mut self, side: &str, record: bool) -> io::Result<()> {
         self.stop_radar();
 
         let repo = resolve_radar_root().map_err(|error| {
@@ -126,7 +126,7 @@ impl ScriptRunner {
         let cmd = format!(
             "source /opt/ros/jazzy/setup.bash && \
              source ros_ws/install/setup.bash && \
-             exec ros2 launch radar_bringup competition.launch.py side:={side}"
+             exec ros2 launch radar_bringup competition.launch.py side:={side} enable_raw_recording:={record}"
         );
 
         let stderr = stderr_log(RADAR_STDERR_LOG, "Radar")?;
@@ -139,7 +139,10 @@ impl ScriptRunner {
             .spawn()
             .map_err(|error| contextual_error(error, "Radar", "spawn bash launch", &repo))?;
 
-        log::info!("Started Radar (side={side}, pid={})", child.id());
+        log::info!(
+            "Started Radar (side={side}, enable_raw_recording={record}, pid={})",
+            child.id()
+        );
         self.radar_child = Some(child);
         Ok(())
     }

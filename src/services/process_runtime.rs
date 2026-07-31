@@ -40,6 +40,7 @@ pub struct StartAllOptions {
     pub stream: bool,
     pub record: bool,
     pub laser_auto: bool,
+    pub radar_record: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,9 +60,13 @@ pub enum ProcessCommand {
         stream: bool,
         record: bool,
         laser_auto: bool,
+        radar_record: bool,
     },
     RetryFailed,
-    StartRadar(TeamSide),
+    StartRadar {
+        side: TeamSide,
+        record: bool,
+    },
     StartSdr(TeamSide),
     StartLaser(StartLaserOptions),
     SendLaserCommand(String),
@@ -79,6 +84,7 @@ impl From<StartAllOptions> for ProcessCommand {
             stream: options.stream,
             record: options.record,
             laser_auto: options.laser_auto,
+            radar_record: options.radar_record,
         }
     }
 }
@@ -116,7 +122,7 @@ impl fmt::Display for ProcessSendError {
 impl std::error::Error for ProcessSendError {}
 
 pub(crate) trait ProcessBackend: Send + 'static {
-    fn start_radar(&mut self, side: TeamSide) -> io::Result<()>;
+    fn start_radar(&mut self, side: TeamSide, record: bool) -> io::Result<()>;
     fn start_sdr(&mut self, enemy: TeamSide) -> io::Result<()>;
     fn start_laser(&mut self, script: LaserScript) -> io::Result<()>;
     fn configure_laser(&mut self, enemy: &str, stream: bool, record: bool) -> io::Result<()>;
@@ -128,8 +134,8 @@ pub(crate) trait ProcessBackend: Send + 'static {
 }
 
 impl ProcessBackend for ScriptRunner {
-    fn start_radar(&mut self, side: TeamSide) -> io::Result<()> {
-        ScriptRunner::start_radar(self, side.as_str()).map_err(|error| {
+    fn start_radar(&mut self, side: TeamSide, record: bool) -> io::Result<()> {
+        ScriptRunner::start_radar(self, side.as_str(), record).map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!("Radar start failed for side {}: {error}", side.as_str()),
@@ -370,6 +376,7 @@ async fn run_process_actor<B: ProcessBackend>(
                 stream,
                 record,
                 laser_auto,
+                radar_record,
             } => {
                 if reject_start_if_busy(
                     "Start All",
@@ -392,6 +399,7 @@ async fn run_process_actor<B: ProcessBackend>(
                         stream,
                         record,
                         laser_auto,
+                        radar_record,
                     },
                     step: SequenceStep::StartRadar,
                     configure_attempts: 0,
@@ -424,7 +432,7 @@ async fn run_process_actor<B: ProcessBackend>(
                     );
                 }
             }
-            ProcessCommand::StartRadar(side) => {
+            ProcessCommand::StartRadar { side, record } => {
                 if reject_start_if_busy(
                     "Radar start",
                     &sequence,
@@ -448,7 +456,7 @@ async fn run_process_actor<B: ProcessBackend>(
                 snapshot.radar = ComponentSnapshot::default();
                 publish(&snapshot_tx, &snapshot);
                 finish_component(
-                    backend.start_radar(side),
+                    backend.start_radar(side, record),
                     ProcessComponent::Radar,
                     &mut snapshot,
                     &snapshot_tx,
@@ -727,7 +735,7 @@ fn advance_sequence<B: ProcessBackend>(
             }
             snapshot.radar = ComponentSnapshot::default();
             publish(snapshot_tx, snapshot);
-            match backend.start_radar(current.command.side) {
+            match backend.start_radar(current.command.side, current.command.radar_record) {
                 Ok(()) => {
                     snapshot.radar.managed = true;
                     snapshot.phase = ProcessPhase::WaitingForRadar;
@@ -1004,8 +1012,15 @@ mod tests {
     }
 
     impl ProcessBackend for FakeBackend {
-        fn start_radar(&mut self, side: TeamSide) -> io::Result<()> {
-            self.event(ProcessComponent::Radar, format!("radar:{}", side.as_str()))
+        fn start_radar(&mut self, side: TeamSide, record: bool) -> io::Result<()> {
+            self.event(
+                ProcessComponent::Radar,
+                format!(
+                    "radar:{},record {}",
+                    side.as_str(),
+                    if record { "on" } else { "off" }
+                ),
+            )
         }
 
         fn start_sdr(&mut self, enemy: TeamSide) -> io::Result<()> {
@@ -1076,6 +1091,7 @@ mod tests {
             stream: true,
             record: false,
             laser_auto: false,
+            radar_record: false,
         }
     }
 
@@ -1119,12 +1135,34 @@ mod tests {
         assert_eq!(
             events.lock().unwrap().as_slice(),
             [
-                "radar:red",
+                "radar:red,record off",
                 "sdr:blue",
                 "laser:Competition",
                 "fifo:enemy blue,stream on,record off",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn start_all_propagates_radar_record_flag() {
+        let delay = Duration::from_millis(1);
+        let (runtime, events) = test_runtime(FakeBackend::default(), delay);
+        runtime
+            .send(ProcessCommand::StartAll {
+                side: TeamSide::Blue,
+                stream: false,
+                record: false,
+                laser_auto: false,
+                radar_record: true,
+            })
+            .unwrap();
+
+        wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
+
+        assert!(events
+            .lock()
+            .unwrap()
+            .starts_with(&["radar:blue,record on".into()]));
     }
 
     #[tokio::test]
@@ -1156,7 +1194,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|event| *event == "radar:red")
+                .filter(|event| *event == "radar:red,record off")
                 .count(),
             1
         );
@@ -1207,7 +1245,10 @@ mod tests {
         .await;
 
         runtime
-            .send(ProcessCommand::StartRadar(TeamSide::Blue))
+            .send(ProcessCommand::StartRadar {
+                side: TeamSide::Blue,
+                record: false,
+            })
             .unwrap();
         wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
 
@@ -1232,13 +1273,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn standalone_start_radar_propagates_record_flag() {
+        let (runtime, events) = test_runtime(FakeBackend::default(), Duration::ZERO);
+        runtime
+            .send(ProcessCommand::StartRadar {
+                side: TeamSide::Blue,
+                record: true,
+            })
+            .unwrap();
+        wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
+
+        assert_eq!(events.lock().unwrap().as_slice(), ["radar:blue,record on"]);
+    }
+
+    #[tokio::test]
     async fn failure_stops_later_steps_and_retry_continues() {
         let delay = Duration::from_millis(1);
         let backend = FakeBackend::fail_once(ProcessComponent::Sdr);
         let (runtime, events) = test_runtime(backend, delay);
         runtime.send(start_all_red()).unwrap();
         wait_for_failed(&runtime, ProcessComponent::Sdr, Duration::from_secs(1)).await;
-        assert_eq!(events.lock().unwrap().as_slice(), ["radar:red", "sdr:blue"]);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            ["radar:red,record off", "sdr:blue"]
+        );
 
         runtime.send(ProcessCommand::RetryFailed).unwrap();
         wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
@@ -1367,7 +1425,10 @@ mod tests {
         };
         let (runtime, _) = test_runtime(backend, Duration::ZERO);
         runtime
-            .send(ProcessCommand::StartRadar(TeamSide::Red))
+            .send(ProcessCommand::StartRadar {
+                side: TeamSide::Red,
+                record: false,
+            })
             .unwrap();
         wait_for_failed(&runtime, ProcessComponent::Radar, Duration::from_secs(1)).await;
 
