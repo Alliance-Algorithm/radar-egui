@@ -16,7 +16,7 @@ rerun = { version = "0.33", optional = true }
 gst = { package = "gstreamer", version = "0.23", optional = true }
 gst-app = { package = "gstreamer-app", version = "0.23", optional = true }
 gst-video = { package = "gstreamer-video", version = "0.23", optional = true }
-serial2 = "0.2.37"
+serial2 = { version = "0.2.37", features = ["unix"] }
 deku = "0.20.3"
 zmq2 = "0.5.0"
 serde = { version = "1", features = ["derive"] }
