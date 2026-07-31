@@ -1273,6 +1273,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn standalone_start_radar_propagates_record_flag() {
+        let (runtime, events) = test_runtime(FakeBackend::default(), Duration::ZERO);
+        runtime
+            .send(ProcessCommand::StartRadar {
+                side: TeamSide::Blue,
+                record: true,
+            })
+            .unwrap();
+        wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
+
+        assert_eq!(events.lock().unwrap().as_slice(), ["radar:blue,record on"]);
+    }
+
+    #[tokio::test]
     async fn failure_stops_later_steps_and_retry_continues() {
         let delay = Duration::from_millis(1);
         let backend = FakeBackend::fail_once(ProcessComponent::Sdr);
