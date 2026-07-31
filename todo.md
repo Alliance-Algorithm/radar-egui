@@ -10,7 +10,7 @@
 - 实现 RoboMasterSignalInfo 结构体，匹配 Python SDR 的数据格式
 - 实现 parse_signal() 二进制解析器，滑动窗口扫描 cmd_id
 
-### TCP 客户端
+### TCP 客户端（历史实现，已由 ZMQ 替代）
 - 实现 tokio 异步 TCP 客户端，连接 127.0.0.1:2000
 - 支持自动重连，buffer 累积 ≥200 字节后解析
 
@@ -43,7 +43,7 @@
 - Rerun 集成：3D 可视化机器人位置、血量/经济时间序列
 - CodeRabbit 配置：PR 和 commit 自动 review
 
-## SDR 接口
+## SDR 接口（2026-05 历史记录，非当前架构）
 - ✅ 127.0.0.1:2000 — 信号流 (102 bytes) — 已对接
 - ❌ 127.0.0.1:3000 — 噪声流 (7 bytes) — 未对接
 - ❌ 192.168.1.10:2000 — 数据中心标记 (12 bytes) — 未对接
@@ -51,8 +51,8 @@
 
 ## 2026-05-18
 
-### 进程控制优化
-- Start All 异步化：延迟 laser 启动到 update loop，不再阻塞 UI 线程
+### 进程控制优化（历史实现，后由 ProcessRuntime actor 取代）
+- 当时将 Laser 延迟启动放到 update loop；当前已由 Tokio `ProcessRuntime` actor 的 `tokio::select!` 可取消编排取代
 - Stop 按钮可靠停止 daemon：pkill -9 强杀 tool_competition/tool_preview/ffplay，清理 FIFO
 - Laser UDP listener 改为懒启动：仅在进入 Laser 标签时绑定 5001，避免冷启动端口冲突
 
@@ -80,10 +80,18 @@
 ## 2026-07-24
 
 ### 文档对齐：Radar 进程 = alliance_radar_location_lidar（非 Unity）
-- 代码侧 `ScriptRunner::start_radar` 已启动 `../alliance_radar_location_lidar`（ROS2 `radar_bringup competition.launch.py`）
-- 文档移除 RADAR_APP / Unity 启动与职责描述
+- 代码侧 `ScriptRunner::start_radar` 启动 ROS2 `radar_bringup competition.launch.py`；当前默认 root 为 manifest 相对 `../../alliance_radar_location_lidar`，可用 `ALLIANCE_RADAR_LOCATION_LIDAR_ROOT` 覆盖
+- Unity/RADAR_APP 仅为已废弃历史方案，不得重新作为当前启动目标
 - 更新 README、docs/data-flow.md 进程控制与数据流说明
 - 重写 `AGENTS.md`：去掉 TCP:2000 / tcp_client / protocol.rs，改为 ZMQ + ROS2 Radar + 当前模块/启动编排
+
+## 2026-07-31
+
+### UI/backend integration
+- 进程控制改为 egui → Tokio `mpsc<ProcessCommand>` → `ProcessRuntime` actor → `ScriptRunner`，状态由 `watch<ProcessSnapshot>` 返回 UI
+- Start All 当前顺序为 Radar → SDR → Competition Laser → FIFO；`tokio::select!` 保证启动间隔和重试期间可取消
+- 全局我方 `TeamSide` 统一派生 Radar 我方 side、SDR 敌方 side 和 Laser enemy 命令
+- Laser 当前脚本为 `competition-laser`、`preview-laser`、`stream`、`record`；HikCamera 由 `laser_guidance` 管理
 
 ## 待办
 - [ ] 测试 Rerun 集成

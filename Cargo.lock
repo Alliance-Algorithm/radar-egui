@@ -5037,6 +5037,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -6735,6 +6744,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
+name = "pcd-rs"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4ed911416cc7a2548600b6bd3a9c5b6413a779e37fe564c541d2f586fccf9a5"
+dependencies = [
+ "byteorder",
+ "itertools 0.13.0",
+ "num-traits",
+ "regex",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "peg"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7384,10 +7406,13 @@ dependencies = [
  "image",
  "libc",
  "log",
+ "pcd-rs",
  "rerun",
+ "rfd",
  "serde",
  "serde_json",
  "serial2",
+ "tempfile",
  "tokio",
  "zmq2",
 ]
@@ -10058,6 +10083,9 @@ dependencies = [
  "raw-window-handle",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "web-sys",
  "windows-sys 0.61.2",
 ]

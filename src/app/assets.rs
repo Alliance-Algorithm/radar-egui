@@ -13,7 +13,7 @@ impl RadarApp {
                 let pixels = rgba.into_raw();
                 let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
                 self.minimap_texture = Some(ctx.load_texture(
-                    "unity_minimap_bg",
+                    "sdr_minimap_bg",
                     color_image,
                     egui::TextureOptions::LINEAR,
                 ));

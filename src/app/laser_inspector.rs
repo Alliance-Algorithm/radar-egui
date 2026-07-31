@@ -13,6 +13,11 @@ impl RadarApp {
     ) {
         let laser_online = laser_snapshot.is_some_and(|s| s.online);
         let obs = laser_snapshot.map(|s| &s.observation);
+        let video_available = self
+            .video_feed
+            .with_frame(|frame| frame.is_some())
+            .unwrap_or(false)
+            || self.laser_video_texture.texture().is_some();
 
         white_card(ui, "数据源", |ui| {
             status_chip(ui, laser_listening, "Laser ZMQ");
@@ -26,22 +31,38 @@ impl RadarApp {
                     "No recent packets"
                 },
             );
-            ui.add_space(12.0);
-            egui::Grid::new("laser_conn_grid")
+            ui.add_space(8.0);
+            status_chip(
+                ui,
+                video_available,
+                if video_available {
+                    "Video SHM receiving"
+                } else {
+                    "Video SHM idle"
+                },
+            );
+        });
+
+        ui.add_space(14.0);
+
+        white_card(ui, "相机", |ui| {
+            egui::Grid::new("hikcamera_ownership")
                 .num_columns(2)
-                .min_col_width(78.0)
-                .spacing([12.0, 10.0])
+                .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new("Camera")
-                            .color(theme::text_muted())
-                            .size(13.0),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.camera_device)
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.end_row();
+                    for (label, value) in [
+                        ("Camera backend", "HikCamera"),
+                        ("Configuration", "managed by laser_guidance"),
+                        ("Selection", "auto when one device is present"),
+                    ] {
+                        ui.label(
+                            egui::RichText::new(label)
+                                .color(theme::text_faint())
+                                .size(12.0),
+                        );
+                        ui.label(egui::RichText::new(value).color(theme::text()).size(12.0));
+                        ui.end_row();
+                    }
                 });
         });
 

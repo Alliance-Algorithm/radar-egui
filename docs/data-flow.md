@@ -18,7 +18,7 @@
 │         │                 │                 │                    │          │
 │  ┌──────┴─────────────────┴─────────────────┴────────────────────┴──────┐  │
 │  │                       共享状态层 Arc<Mutex<T>>                        │  │
-│  │     ZmqData  │  SerialData  │  LaserObservation  │  PointCloudFrame  │  │
+│  │       SharedData（统一） │ LaserObservation │ PointCloudFrame       │  │
 │  └──────┬─────────────────┬─────────────────┬────────────────────┬──────┘  │
 │         │                 │                 │                    │          │
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────────┴──────┐  │
@@ -63,13 +63,13 @@
 ### 2.1 SDR 无线数据链路（敌方全量数据）
 
 ```
-alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB → Arc<Mutex<ZmqData>>
-                                                                  │
-                                  ┌────────────────────────────────┤
-                                  ▼                                ▼
-                           SDR 标签 (egui)                  ZMQ PUB :5557
-                           · 小地图(位置)                   (中继串口数据)
-                           · 血量/弹药/经济/增益面板
+alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB ──直接写──▶ SharedReader 所有的
+                                                                      Arc<Mutex<SharedData>>
+                                                                                │
+                                                                                ▼
+                                                                         SDR 标签 (egui)
+                                                                         · 小地图(位置)
+                                                                         · 血量/弹药/经济/增益面板
 ```
 
 **数据**：`ReceiveSdr` (JSON, cmd_id=0x2002) → 6 子结构体：
@@ -86,15 +86,15 @@ alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB → Arc<Mutex<ZmqDat
 ### 2.2 串口（裁判系统）数据链路
 
 ```
-DJI Referee ◀════ UART 115200bps ═══▶ radar-egui Serial RX/TX
-                                           │
-                                    Arc<Mutex<SerialData>>
-                                           │
-                          ┌────────────────┼────────────────┐
-                          ▼                                  ▼
-                   ZMQ PUB 线程                           Serial TX 线程
-                   (串口→ZMQ:10ms轮询)                    (ZMQ→串口:10ms轮询)
+DJI Referee ──UART──▶ Serial RX ──▶ parser ──写──▶ SharedReader 所有的 Arc<Mutex<SharedData>>
+                                      │                              │
+                                      ├─ idx ──▶ ZMQ PUB             └─▶ Serial UI 独立读取最新快照
+                                      │          (查询 SharedData)       (仅串口打开时记录变化)
+                                      └─ idx ──▶ Serial TX
+                                                 (查询 SharedData → UART)
 ```
+
+串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。`open_serial()` 把 ZMQ PUB sender 和 Serial TX sender 一并交给 parser，所以每个完成帧的 idx 分别通知这两个消费者；idx 不路由到 UI。
 
 **帧格式**：
 ```
@@ -142,23 +142,23 @@ laser_guidance ──→ ZMQ PUB :5556 → radar-egui (ReceiveLaser JSON)
 
 **视频 SHM**：magic `0x4C465248("LFRH")`，双缓冲 BGR8，atomic frame_seq + write_idx 无锁同步。
 
-**进程控制**：通过 `ScriptRunner` spawn `laser_guidance/.script/{competition|preview|stream|record}`，通过 FIFO 下发 enemy/stream/record 配置。
+**进程控制**：通过 `ScriptRunner` spawn `.script/competition-laser`、`.script/preview-laser`、`.script/stream` 或 `.script/record`，并通过 FIFO 下发 enemy/stream/record 配置。默认 root 为 manifest 相对 `../../laser_guidance`，可用 `LASER_GUIDANCE_ROOT` 覆盖；HikCamera 由 `laser_guidance` 配置和持有，单设备时自动选择。
 
 ### 2.4 激光雷达定位数据链路（ROS2 Radar）
 
-**进程控制启动**（`ScriptRunner::start_radar`，仓库相对路径 `../alliance_radar_location_lidar`）：
+**进程控制启动**（`ScriptRunner::start_radar`）：默认 root 为 manifest 相对 `../../alliance_radar_location_lidar`，可用 `ALLIANCE_RADAR_LOCATION_LIDAR_ROOT` 覆盖。启动前校验 workspace setup 和 launch 文件。
 
 ```
-source /opt/ros/jazzy/setup.zsh
-source ros_ws/install/setup.zsh
-ros2 launch radar_bringup competition.launch.py side:=<red|blue>
+source /opt/ros/jazzy/setup.bash
+source ros_ws/install/setup.bash
+exec ros2 launch radar_bringup competition.launch.py side:=<red|blue>
 ```
 
 **数据链路**：
 
 ```
 alliance_radar_location_lidar (ROS2: camera + lidar + fusion + bridge)
-    → ZMQ PUB :5556 → radar-egui ZMQ SUB → Arc<Mutex<ZmqData>>.lidar
+    → ZMQ PUB :5556 → radar-egui ZMQ SUB ──直接写──▶ SharedReader 所有的 Arc<Mutex<SharedData>>
 ```
 
 **`ReceiveLidarLocation`** (JSON, cmd_id=0x2001)：12 机器人 × (x: u16, y: u16) = 24 字段。
@@ -167,11 +167,13 @@ alliance_radar_location_lidar (ROS2: camera + lidar + fusion + bridge)
 ### 2.5 点云数据链路
 
 ```
-model_to_map ──→ SHM /pointcloud_frame → PointCloudRuntime → Rerun 3D Viewer
+model_to_map ──→ SHM /pointcloud_frame → PointCloudRuntime ──→ egui 点云状态
+                                                            └─→ 可选 Rerun 3D Viewer
 ```
 
 **点云 SHM**：magic `0x50434446("PCDF")`，双缓冲，每点 28B (x: f32, y: f32, z: f32, rgba: u32, nx/ny/nz: f32)。
 坐标映射：`SHM.xyz = (-PCD.x, PCD.z, PCD.y)`。
+Rerun/gRPC 仅是可选可视化输出，不是 ROS2 Radar、LidarLocation 或点云 SHM 的业务传输，UI 不据此推断这些链路的连接状态。
 
 ---
 
@@ -181,41 +183,53 @@ model_to_map ──→ SHM /pointcloud_frame → PointCloudRuntime → Rerun 3D 
 
 | 常量 | 值 | 方向 | 消息类型 | 说明 |
 |------|----|------|----------|------|
-| `ZMQ_PUB_GAME_STATE` | 0x1001 | Rust → | `TransmitGameState` | 比赛阶段 |
-| `ZMQ_PUB_RADAR_MARK` | 0x1002 | Rust → | `TransmitRadarMarkProcess` | 雷达标记 |
+| `GAME_STATE_CMD_ID` | 0x0001 | Rust → | `TransmitGameState` | PUB JSON 复用 DJI 比赛状态 ID |
+| `RADAR_MARK_PROCESS_CMD_ID` | 0x020C | Rust → | `TransmitRadarMarkProcess` | PUB JSON 复用 DJI 雷达标记 ID |
 | `ZMQ_SUB_LIDAR_LOCATION` | 0x2001 | → Rust | `ReceiveLidarLocation` | 激光定位 |
 | `ZMQ_SUB_SDR` | 0x2002 | → Rust | `ReceiveSdr` | SDR 全量 |
 | `ZMQ_SUB_LASER` | 0x2003 | → Rust | `ReceiveLaser` | 激光观测 |
 
 - SUB 连接到 `tcp://127.0.0.1:5555` + `:5556`，PUB 绑定 `tcp://*:5557`
 - 格式：JSON (serde_json)，SUB 接收超时 100ms
+- PUB 没有单独的 `0x1001`/`0x1002` ZMQ ID；不要为 GameState/RadarMark invent 新协议值
 
 ### 3.2 串口 ↔ ZMQ 桥接
 
 ```
-Serial RX → parser → serial_produced[15] → zmq_serial_update() (10ms) → ZMQ PUB (0x1001, 0x1002)
-ZMQ SUB ← JSON → zmq_produced[6] → Serial transmitter (10ms) → serial_package() → UART TX
+Serial RX → parser → SharedData + tx.send(idx) ─┬→ ZMQ PUB 查询 SharedData → JSON (:5557)
+                                                └→ Serial TX 查询 SharedData → serial_package() → UART TX
+ZMQ SUB ← JSON → SharedData → UI 最新快照
 ```
 
-**标志位索引**：
+Parser 的 `usize` 通知索引只决定已完成帧触发哪类发布/发送；`SharedData` 始终是数据真源。Serial TX 阻塞等待自己的 idx receiver；ZMQ SUB 当前只写 `SharedData`，没有连接到该 sender，所以 ZMQ 接收不会触发 UART 发送。协议索引包括：
 ```
-SerialData:  0=GAME_STATE 1=GAME_RESULT 2=SITE_EVENT 3=DART 4=RADAR_MARK
-             5=RADAR_SYNC 6=ROBOT_INTERACT 7=RADAR_DECISION 8=MINIMAP
-             9-14=SDR 位置/血量/弹药/状态/增益/密钥
-ZmqData:     0=SDR 1=LASER 2=LIDAR 3=GAME_STATE 4=RADAR_MARK
+0=GAME_STATE 1=GAME_RESULT 2=SITE_EVENT 3=DART 4=RADAR_MARK
+5=RADAR_SYNC 6=ROBOT_INTERACT 7=RADAR_DECISION 8=MINIMAP
+9-14=SDR 位置/血量/弹药/状态/增益/密钥
 ```
 
 ---
 
 ## 4. 进程控制
 
+```text
+egui → tokio::sync::mpsc<ProcessCommand> → Tokio ProcessRuntime actor → ScriptRunner
+                                                   │
+                                                   └→ watch<ProcessSnapshot> → egui
+```
+
+`ProcessControl` 是非阻塞 facade：UI 只发送命令和读取最新 snapshot。actor 在一个专用 OS 线程/一个 Tokio runtime 上独占 `ScriptRunner`。Start All 的 coroutine 状态机通过 `tokio::select!` 同时等待命令、启动间隔和 FIFO 重试 deadline，所以 Stop All/Shutdown 在等待期间可取消后续步骤；不存在由 egui frame polling 驱动的 `PendingStartAll` 路径。
+
+全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`：Radar 使用我方 side；SDR 使用 `side.enemy()`；Laser 使用 `enemy red|blue`，Auto 模式改用 `enemy auto`。
+
 | UI 动作 | 代码 | 外部进程 |
 |---------|------|----------|
 | Start SDR | `start_sdr(enemy)` | `../alliance_radar_sdr` → `python3 thread_init.py --enemySide …` |
-| Start Radar | `start_radar(side)` | `../alliance_radar_location_lidar` → `ros2 launch radar_bringup competition.launch.py side:=…` |
-| Start Laser | `start(Competition|…)` | `laser_guidance/.script/…` + FIFO `/tmp/laser_cmd` |
-| Start All | `schedule_start_all` | t=0 SDR → t=1s Laser::Competition + FIFO 配置（**不含** Radar，Radar 需单独点启） |
-| Stop All | `stop_all` | 停 Radar + Laser + SDR |
+| Start Radar | `start_radar(side)` | 已校验 Radar root → `ros2 launch radar_bringup competition.launch.py side:=…` |
+| Start Laser | `start(Competition|…)` | 已校验 Laser root 的当前 `.script/…` + FIFO `/tmp/laser_cmd` |
+| Start All | `start_all(StartAllOptions)` | Radar → 1s → SDR → 1s → Competition Laser → FIFO 配置 |
+| Retry Failed | `retry_failed()` | 从失败的 sequence step 继续，不重启已完成的前序步骤 |
+| Stop All | `stop_all()` | 取消 pending 状态，停 Laser → SDR → Radar |
 
 ---
 
@@ -239,9 +253,11 @@ ZmqData:     0=SDR 1=LASER 2=LIDAR 3=GAME_STATE 4=RADAR_MARK
 
 | 决策 | 理由 |
 |------|------|
-| Arc\<Mutex\<T\>\> vs channel | egui 每帧 16ms 读快照，Mutex 保证最新值，无竞争 |
+| Arc\<Mutex\<T\>\> vs channel | 业务数据由 UI 读取最新快照，Mutex 提供单一可信状态 |
+| mpsc command + watch snapshot | 进程命令逐条串行处理，UI 状态读取不消费事件且始终取最新值 |
+| `tokio::select!` orchestration | Start All 延迟和 FIFO 重试期间仍可处理取消/关闭命令 |
 | 滑动窗口解析器 | 无固定帧分隔符，匹配 DJI 协议，CRC 双重校验 |
-| 双标志数组 | serial_produced[15] / zmq_produced[6] 分离，避免串口↔ZMQ 阻塞 |
+| idx notification + SharedData | Parser 只发送已完成帧索引，消费者从唯一可信共享状态读取数据 |
 | SHM 双缓冲 | atomic frame_seq + write_idx 无锁同步，零拷贝 |
 | ZMQ JSON | 自动重连 + 跨语言 (Rust/Python/C++) |
 
@@ -252,15 +268,14 @@ ZmqData:     0=SDR 1=LASER 2=LIDAR 3=GAME_STATE 4=RADAR_MARK
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | 入口 | `src/main.rs` | eframe 窗口 1280×720 |
-| 全局状态 | `src/state.rs` | Zmq/Serial/Laser/PointCloud 读写端 |
-| 应用 | `src/app/mod.rs` | RadarApp, 三标签路由, 连接状态, Rerun |
-| 侧边栏 | `src/app/view.rs` | 模式栏, SDR/Laser 侧边栏 |
+| 全局状态 | `src/state.rs` | `SharedReader`/`SharedWriter` 统一持有 `SharedData`；另有 Laser/PointCloud 读写端 |
+| 应用 | `src/app/` | RadarApp, 四 workspace 路由, 进程控制 UI, 连接状态, Rerun |
 | 运行时 | `src/runtime/mod.rs` | ZmqSub/PubRuntime, VideoRuntime, PointCloudRuntime |
-| 进程管理 | `src/services/` | script_runner(SDR/Laser/ROS2 Radar 启停) + process_control(Start All 编排) |
-| 串口 | `src/serial/` | data_format(15 deku 结构体), parser(滑动窗口), package(组帧), crc, serial(I/O 线程) |
-| ZMQ | `src/zmq/` | data_format(消息结构体), zmq(PUB/SUB 线程 + 桥接) |
+| 进程管理 | `src/services/` | process_runtime(actor/编排) + process_control(UI facade) + script_runner(外部进程/FIFO) |
+| 串口 | `src/serial/` + `src/shared_data.rs` | deku 结构体, parser(滑动窗口), package(组帧), crc, serial(I/O 线程) |
+| ZMQ | `src/zmq/zmq.rs` | 私有 JSON 消息, PUB/SUB 线程 + SharedData 桥接 |
 | 激光 | `src/laser/` | protocol(解析), video(SHM 读取) |
 | 点云 | `src/pointcloud/` | protocol(解析), reader(SHM 读取), rerun_visualizer |
 | 小地图 | `src/widgets/minimap.rs` | 2D 战场画布, 6 机器人, 拖拽/缩放 |
 | 面板 | `src/widgets/panels.rs` | 血量/弹药/经济/增益 状态面板 |
-| 激光面板 | `src/widgets/laser_panel.rs` | 视频舞台 + 分析 |
+| 激光 workspace | `src/app/laser_*.rs` | 视频舞台、进程控制、HikCamera 所有权说明和分析 |
