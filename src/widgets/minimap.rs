@@ -458,6 +458,185 @@ mod tests {
     }
 
     #[test]
+    fn marker_table_maps_all_twelve_roles_and_telemetry_fields() {
+        let mut data = SharedData::default();
+        data.ally_hero = crate::shared_data::Position { x: 10, y: 11 };
+        data.ally_engineer = crate::shared_data::Position { x: 20, y: 21 };
+        data.ally_infantry_3 = crate::shared_data::Position { x: 30, y: 31 };
+        data.ally_infantry_4 = crate::shared_data::Position { x: 40, y: 41 };
+        data.ally_aerial = crate::shared_data::Position { x: 50, y: 51 };
+        data.ally_sentry = crate::shared_data::Position { x: 60, y: 61 };
+        data.enemy_hero = crate::shared_data::Position { x: 70, y: 71 };
+        data.enemy_engineer = crate::shared_data::Position { x: 80, y: 81 };
+        data.enemy_infantry_3 = crate::shared_data::Position { x: 90, y: 91 };
+        data.enemy_infantry_4 = crate::shared_data::Position { x: 100, y: 101 };
+        data.enemy_aerial = crate::shared_data::Position { x: 110, y: 111 };
+        data.enemy_sentry = crate::shared_data::Position { x: 120, y: 121 };
+        data.sdr_blood.hero_blood = 151;
+        data.sdr_blood.engineer_blood = 152;
+        data.sdr_blood.infantry_3_blood = 153;
+        data.sdr_blood.infantry_4_blood = 154;
+        data.sdr_blood.sentry_blood = 355;
+        data.sdr_ammo.hero_ammo = 41;
+        data.sdr_ammo.infantry_3_ammo = 43;
+        data.sdr_ammo.infantry_4_ammo = 44;
+        data.sdr_ammo.aerial_ammo = 45;
+        data.sdr_ammo.sentry_ammo = 46;
+
+        let markers = build_robot_markers(&data, TeamSide::Red);
+        let expected = [
+            (
+                "我方 · 英雄",
+                "英雄",
+                MarkerSide::Ally,
+                [10, 11],
+                theme::HERO_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "我方 · 工程",
+                "工程",
+                MarkerSide::Ally,
+                [20, 21],
+                theme::ENGINEER_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "我方 · 步兵3",
+                "步兵3",
+                MarkerSide::Ally,
+                [30, 31],
+                theme::INFANTRY1_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "我方 · 步兵4",
+                "步兵4",
+                MarkerSide::Ally,
+                [40, 41],
+                theme::INFANTRY2_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "我方 · 无人机",
+                "无人机",
+                MarkerSide::Ally,
+                [50, 51],
+                theme::DRONE_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "我方 · 哨兵",
+                "哨兵",
+                MarkerSide::Ally,
+                [60, 61],
+                theme::SENTINEL_COLOR,
+                theme::RED,
+                None,
+                None,
+            ),
+            (
+                "敌方 · 英雄",
+                "英雄",
+                MarkerSide::Enemy,
+                [70, 71],
+                theme::HERO_COLOR,
+                theme::BLUE,
+                Some(RobotHealth {
+                    hp: 151,
+                    hp_max: 200,
+                }),
+                Some(41),
+            ),
+            (
+                "敌方 · 工程",
+                "工程",
+                MarkerSide::Enemy,
+                [80, 81],
+                theme::ENGINEER_COLOR,
+                theme::BLUE,
+                Some(RobotHealth {
+                    hp: 152,
+                    hp_max: 200,
+                }),
+                None,
+            ),
+            (
+                "敌方 · 步兵3",
+                "步兵3",
+                MarkerSide::Enemy,
+                [90, 91],
+                theme::INFANTRY1_COLOR,
+                theme::BLUE,
+                Some(RobotHealth {
+                    hp: 153,
+                    hp_max: 200,
+                }),
+                Some(43),
+            ),
+            (
+                "敌方 · 步兵4",
+                "步兵4",
+                MarkerSide::Enemy,
+                [100, 101],
+                theme::INFANTRY2_COLOR,
+                theme::BLUE,
+                Some(RobotHealth {
+                    hp: 154,
+                    hp_max: 200,
+                }),
+                Some(44),
+            ),
+            (
+                "敌方 · 无人机",
+                "无人机",
+                MarkerSide::Enemy,
+                [110, 111],
+                theme::DRONE_COLOR,
+                theme::BLUE,
+                None,
+                Some(45),
+            ),
+            (
+                "敌方 · 哨兵",
+                "哨兵",
+                MarkerSide::Enemy,
+                [120, 121],
+                theme::SENTINEL_COLOR,
+                theme::BLUE,
+                Some(RobotHealth {
+                    hp: 355,
+                    hp_max: 400,
+                }),
+                Some(46),
+            ),
+        ];
+
+        assert_eq!(markers.len(), expected.len());
+        for (index, (marker, expected)) in markers.iter().zip(expected).enumerate() {
+            let (name, role_name, side, pos, role_color, team_color, health, ammo) = expected;
+            assert_eq!(marker.name, name, "marker {index} name/order");
+            assert_eq!(marker.role_name, role_name, "marker {index} role_name");
+            assert_eq!(marker.side, side, "marker {index} side");
+            assert_eq!(marker.pos, pos, "marker {index} position");
+            assert_eq!(marker.role_color, role_color, "marker {index} role color");
+            assert_eq!(marker.team_color, team_color, "marker {index} team color");
+            assert_eq!(marker.health, health, "marker {index} health");
+            assert_eq!(marker.ammo, ammo, "marker {index} ammo");
+        }
+    }
+
+    #[test]
     fn hp_arc_clamps_ratio_and_uses_green_yellow_red_thresholds() {
         assert_eq!(
             hp_arc_style(RobotHealth {
@@ -497,6 +676,32 @@ mod tests {
         );
         assert!(hp_arc_style(RobotHealth { hp: 0, hp_max: 200 }).is_none());
         assert!(hp_arc_style(RobotHealth { hp: 20, hp_max: 0 }).is_none());
+    }
+
+    #[test]
+    fn hp_arc_uses_lower_color_at_exact_thresholds() {
+        assert_eq!(
+            hp_arc_style(RobotHealth {
+                hp: 120,
+                hp_max: 200
+            })
+            .unwrap(),
+            HpArcStyle {
+                ratio: 0.6,
+                color: theme::YELLOW
+            }
+        );
+        assert_eq!(
+            hp_arc_style(RobotHealth {
+                hp: 60,
+                hp_max: 200
+            })
+            .unwrap(),
+            HpArcStyle {
+                ratio: 0.3,
+                color: theme::RED
+            }
+        );
     }
 
     #[test]
