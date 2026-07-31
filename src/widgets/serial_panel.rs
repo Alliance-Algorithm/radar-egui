@@ -15,7 +15,7 @@ pub struct SerialFrameLogLine {
     pub kind: SerialLogKind,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SerialLogKind {
     Ok,
     Err,
@@ -101,7 +101,7 @@ impl SerialPanel {
                     self.card(
                         ui,
                         "雷达标记",
-                        "0x020C MarkProcess · 12 机易伤 / 标记",
+                        "0x020C MarkProcess · 5 机易伤",
                         |ui| {
                             show_mark_grid(ui, &data.radar_mark_process);
                         },
@@ -110,9 +110,14 @@ impl SerialPanel {
                 ui.allocate_ui_at_rect(br, |ui| {
                     ui.set_min_size(br.size());
                     ui.set_max_size(br.size());
-                    self.card(ui, "帧日志", "SOF 0xA5 · CRC8/16 · 最近帧", |ui| {
-                        show_frame_log(ui, frame_log);
-                    });
+                    self.card(
+                        ui,
+                        "状态更新日志",
+                        "SharedData 可观察变化",
+                        |ui| {
+                            show_frame_log(ui, frame_log);
+                        },
+                    );
                 });
             });
         });
@@ -150,7 +155,13 @@ impl SerialPanel {
                 "累计 · 无 parser 统计",
                 theme::text(),
             );
-            metric_card(&mut cols[3], "吞吐", "—", "RX · last 1s", theme::text());
+            metric_card(
+                &mut cols[3],
+                "吞吐",
+                "—",
+                "RX · 无 parser 统计",
+                theme::text(),
+            );
         });
     }
 
@@ -240,20 +251,33 @@ fn show_game_state(ui: &mut Ui, gs: &GameStateData, winner: u8) {
         });
     });
     ui.add_space(10.0);
-    ui.horizontal(|ui| {
+    if ui.available_width() >= 180.0 {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("比赛进度")
+                    .color(theme::text_muted())
+                    .size(12.0),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    RichText::new(format!("{elapsed} / {total} s"))
+                        .color(theme::text_muted())
+                        .size(12.0),
+                );
+            });
+        });
+    } else {
         ui.label(
             RichText::new("比赛进度")
                 .color(theme::text_muted())
                 .size(12.0),
         );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!("{elapsed} / {total} s"))
-                    .color(theme::text_muted())
-                    .size(12.0),
-            );
-        });
-    });
+        ui.label(
+            RichText::new(format!("{elapsed} / {total} s"))
+                .color(theme::text_muted())
+                .size(12.0),
+        );
+    }
     progress_bar(ui, pct.clamp(0.0, 1.0), theme::BLUE);
     ui.add_space(10.0);
     egui::Grid::new("serial_game_meta")
@@ -344,57 +368,65 @@ fn show_site_events(ui: &mut Ui, site: &SiteEventData, dart: &crate::shared_data
         });
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MarkRow {
+    label: &'static str,
+    vulnerable: bool,
+}
+
+fn opponent_mark_rows(mark: &RadarMarkProcessData) -> [MarkRow; 5] {
+    [
+        MarkRow {
+            label: "Hero",
+            vulnerable: mark.opponent_hero_vulnerable != 0,
+        },
+        MarkRow {
+            label: "Engineer",
+            vulnerable: mark.opponent_engineer_vulnerable != 0,
+        },
+        MarkRow {
+            label: "Infantry 3",
+            vulnerable: mark.opponent_infantry_3_vulnerable != 0,
+        },
+        MarkRow {
+            label: "Infantry 4",
+            vulnerable: mark.opponent_infantry_4_vulnerable != 0,
+        },
+        MarkRow {
+            label: "Sentry",
+            vulnerable: mark.opponent_sentry_vulnerable != 0,
+        },
+    ]
+}
+
 fn show_mark_grid(ui: &mut Ui, mark: &RadarMarkProcessData) {
-    let red: [(&str, bool, bool); 6] = [
-        ("敌 1", mark.opponent_hero_vulnerable != 0, false),
-        ("敌 2", mark.opponent_engineer_vulnerable != 0, false),
-        ("敌 3", mark.opponent_infantry_3_vulnerable != 0, false),
-        ("敌 4", mark.opponent_infantry_4_vulnerable != 0, false),
-        (
-            "敌 5",
-            mark.opponent_aerial_marked != 0,
-            mark.opponent_aerial_targeted != 0,
-        ),
-        ("敌 6", mark.opponent_sentry_vulnerable != 0, false),
-    ];
-    let blue: [(&str, bool, bool); 6] = [
-        ("我 1", false, mark.ally_hero_marked != 0),
-        ("我 2", false, mark.ally_engineer_marked != 0),
-        ("我 3", false, mark.ally_infantry_3_marked != 0),
-        ("我 4", false, mark.ally_infantry_4_marked != 0),
-        (
-            "我 5",
-            mark.ally_aerial_targeted != 0,
-            mark.ally_aerial_marked != 0,
-        ),
-        ("我 6", false, mark.ally_sentry_marked != 0),
-    ];
+    let rows = opponent_mark_rows(mark);
+    let columns = if ui.available_width() >= 420.0 { 5 } else { 3 };
+    let spacing = 6.0;
+    let cell_w =
+        ((ui.available_width() - spacing * (columns - 1) as f32) / columns as f32).max(54.0);
+    let cell_h = 48.0;
 
-    let cell_w = ((ui.available_width() - 5.0 * 6.0) / 6.0).max(36.0);
-    let cell_h = cell_w.min(ui.available_height() * 0.38).max(40.0);
-
-    ui.horizontal(|ui| {
-        for (lab, vuln, marked) in red {
-            mark_cell(ui, lab, vuln, marked, cell_w, cell_h);
-            ui.add_space(6.0);
-        }
-    });
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        for (lab, vuln, marked) in blue {
-            mark_cell(ui, lab, vuln, marked, cell_w, cell_h);
-            ui.add_space(6.0);
-        }
-    });
+    egui::Grid::new("serial_opponent_marks")
+        .num_columns(columns)
+        .spacing([spacing, spacing])
+        .show(ui, |ui| {
+            for (index, row) in rows.into_iter().enumerate() {
+                mark_cell(ui, row.label, row.vulnerable, cell_w, cell_h);
+                if (index + 1) % columns == 0 {
+                    ui.end_row();
+                }
+            }
+        });
     ui.add_space(8.0);
     ui.label(
-        RichText::new("图例  蓝=已标记 · 红=易伤")
+        RichText::new("图例  红=易伤")
             .color(theme::text_muted())
             .size(11.0),
     );
 }
 
-fn mark_cell(ui: &mut Ui, label: &str, vuln: bool, marked: bool, w: f32, h: f32) {
+fn mark_cell(ui: &mut Ui, label: &str, vuln: bool, w: f32, h: f32) {
     let (fill, stroke, id_color, status, status_color) = if vuln {
         (
             egui::Color32::from_rgba_unmultiplied(239, 68, 68, 28),
@@ -402,14 +434,6 @@ fn mark_cell(ui: &mut Ui, label: &str, vuln: bool, marked: bool, w: f32, h: f32)
             theme::RED,
             "vuln",
             theme::RED,
-        )
-    } else if marked {
-        (
-            egui::Color32::from_rgba_unmultiplied(47, 107, 255, 36),
-            egui::Color32::from_rgba_unmultiplied(47, 107, 255, 100),
-            theme::BLUE,
-            "mark",
-            theme::BLUE,
         )
     } else {
         (
@@ -449,6 +473,7 @@ fn show_frame_log(ui: &mut Ui, log: &VecDeque<SerialFrameLogLine>) {
                     if log.is_empty() {
                         ui.label(
                             RichText::new("READY  serial · open port to start RX/TX")
+                                .family(egui::FontFamily::Monospace)
                                 .color(theme::text_on_dark_muted())
                                 .size(11.0),
                         );
@@ -461,7 +486,12 @@ fn show_frame_log(ui: &mut Ui, log: &VecDeque<SerialFrameLogLine>) {
                                 SerialLogKind::Tx => egui::Color32::from_rgb(0xf9, 0xe2, 0xaf),
                                 SerialLogKind::Info => theme::text_on_dark_muted(),
                             };
-                            ui.label(RichText::new(&line.text).color(color).size(11.0));
+                            ui.label(
+                                RichText::new(&line.text)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(color)
+                                    .size(11.0),
+                            );
                         }
                     }
                 });
@@ -578,5 +608,31 @@ fn winner_label(winner: u8) -> String {
         2 => "蓝方".into(),
         3 => "平局".into(),
         n => format!("{n}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opponent_mark_rows_show_required_five_units() {
+        let mark = RadarMarkProcessData {
+            opponent_hero_vulnerable: 1,
+            opponent_engineer_vulnerable: 0,
+            opponent_infantry_3_vulnerable: 1,
+            opponent_infantry_4_vulnerable: 0,
+            opponent_sentry_vulnerable: 1,
+            ..Default::default()
+        };
+        let rows = opponent_mark_rows(&mark);
+        assert_eq!(
+            rows.map(|row| row.label),
+            ["Hero", "Engineer", "Infantry 3", "Infantry 4", "Sentry"]
+        );
+        assert_eq!(
+            rows.map(|row| row.vulnerable),
+            [true, false, true, false, true]
+        );
     }
 }
