@@ -228,7 +228,8 @@ impl ScriptRunner {
 
     /// 启动 SDR 数据桥接 (thread_init.py)
     ///
-    /// 从 SDR 仓库根目录运行，PYTHONPATH=. 解决 parser/tcp 导入。
+    /// 从 SDR 仓库根目录运行；PYTHONPATH 需含仓库根目录与系统 gnuradio
+    /// dist-packages（与仓库 start-sdr.sh 保持一致）。
     pub fn start_sdr(&mut self, enemy_color: &str) -> io::Result<()> {
         self.stop_sdr();
 
@@ -240,7 +241,7 @@ impl ScriptRunner {
         let child = Command::new("python3")
             .args(["thread_init.py", "--enemySide", enemy_color])
             .current_dir(&sdr_dir)
-            .env("PYTHONPATH", ".")
+            .env("PYTHONPATH", ".:/usr/lib/python3/dist-packages")
             .stdout(Stdio::null())
             .stderr(stderr)
             .stdin(Stdio::null())
