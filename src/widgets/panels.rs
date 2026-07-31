@@ -111,12 +111,6 @@ impl StatusPanels {
 
         ui.add_space(14.0);
 
-        self.card(ui, "占领状态", "点位控制概览", |ui| {
-            ui.label("（无有效数据）");
-        });
-
-        ui.add_space(14.0);
-
         self.card(ui, "增益矩阵", "关键 buff 参数", |ui| {
             egui::Grid::new("gains_grid")
                 .num_columns(6)

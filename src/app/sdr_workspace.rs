@@ -3,7 +3,10 @@ use super::shell::{sdr_dock_height, SIDE_SDR, STAGE_GAP};
 use super::{ConnectionStatus, RadarApp, MINIMAP_DEFAULT_PAN_Y};
 use crate::shared_data::SharedData;
 use crate::theme;
-use crate::widgets::{build_robot_markers, MinimapOptions, MinimapWidget, StatusPanels};
+use crate::widgets::{
+    build_robot_markers, clamp_marker_selection, MarkerSide, MinimapOptions, MinimapWidget,
+    StatusPanels,
+};
 
 impl RadarApp {
     pub(super) fn show_sdr_workspace(&mut self, ctx: &egui::Context, live_snapshot: &SharedData) {
@@ -54,13 +57,14 @@ impl RadarApp {
                     MinimapWidget::new().show_with_state(
                         ui,
                         Some(live_snapshot),
+                        app.team_side,
                         app.minimap_texture.as_ref(),
                         &mut app.minimap_pan,
                         &mut app.minimap_zoom,
                         MinimapOptions {
                             show_grid: app.sdr_show_grid,
                             show_labels: app.sdr_show_labels,
-                            show_heat: app.sdr_show_heat,
+                            show_hp_ring: app.sdr_show_hp_ring,
                             selected: app.sdr_selected,
                         },
                         &mut app.sdr_selected,
@@ -77,7 +81,7 @@ impl RadarApp {
                             ui.horizontal(|ui| {
                                 map_tool_chip(ui, "Grid", &mut app.sdr_show_grid);
                                 map_tool_chip(ui, "Labels", &mut app.sdr_show_labels);
-                                map_tool_chip(ui, "Heat ring", &mut app.sdr_show_heat);
+                                map_tool_chip(ui, "血量环", &mut app.sdr_show_hp_ring);
                             });
                         },
                     );
@@ -214,8 +218,9 @@ impl RadarApp {
     pub(super) fn show_sdr_bottom_dock(&mut self, ui: &mut egui::Ui, radar_snapshot: &SharedData) {
         let info = radar_snapshot;
 
-        let robots = build_robot_markers(info);
-        let sel = self.sdr_selected.min(robots.len().saturating_sub(1));
+        let robots = build_robot_markers(info, self.team_side);
+        let sel = clamp_marker_selection(self.sdr_selected, robots.len());
+        self.sdr_selected = sel;
         let selected = &robots[sel];
 
         ui.columns(3, |cols| {
@@ -231,7 +236,7 @@ impl RadarApp {
                 ui.horizontal(|ui| {
                     let (sw, _) =
                         ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
-                    ui.painter().rect_filled(sw, 12.0, selected.color);
+                    ui.painter().rect_filled(sw, 12.0, selected.role_color);
                     ui.painter().rect_stroke(
                         sw,
                         12.0,
@@ -246,9 +251,18 @@ impl RadarApp {
                                 .size(16.0),
                         );
                         ui.label(
-                            egui::RichText::new("主战 · 实时状态")
-                                .color(theme::text_muted())
-                                .size(12.0),
+                            egui::RichText::new(format!(
+                                "{} · {} · x {} · y {}",
+                                match selected.side {
+                                    MarkerSide::Ally => "我方",
+                                    MarkerSide::Enemy => "敌方",
+                                },
+                                selected.role_name,
+                                selected.pos[0],
+                                selected.pos[1]
+                            ))
+                            .color(theme::text_muted())
+                            .size(12.0),
                         );
                     });
                 });
@@ -266,7 +280,11 @@ impl RadarApp {
                                 .size(18.0),
                         );
                     });
-                    hp_bar(ui, health.hp as f32 / health.hp_max as f32, selected.color);
+                    hp_bar(
+                        ui,
+                        health.hp as f32 / health.hp_max as f32,
+                        selected.role_color,
+                    );
                 } else {
                     ui.label(
                         egui::RichText::new("血量 N/A")
@@ -277,18 +295,14 @@ impl RadarApp {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("弹药 {}", selected.ammo))
-                            .color(theme::text_muted())
-                            .size(13.0),
-                    );
-                    ui.add_space(12.0);
-                    ui.label(
                         egui::RichText::new(format!(
-                            "x {} · y {}",
-                            selected.pos[0], selected.pos[1]
+                            "弹药 {}",
+                            selected
+                                .ammo
+                                .map_or_else(|| "N/A".to_owned(), |ammo| ammo.to_string())
                         ))
-                        .color(theme::text_faint())
-                        .size(12.0),
+                        .color(theme::text_muted())
+                        .size(13.0),
                     );
                 });
             });
@@ -324,7 +338,7 @@ impl RadarApp {
                                 ui.painter().circle_filled(
                                     ui.cursor().left_center() + egui::vec2(6.0, 0.0),
                                     5.0,
-                                    robot.color,
+                                    robot.role_color,
                                 );
                                 ui.add_space(14.0);
                                 ui.label(
@@ -355,7 +369,7 @@ impl RadarApp {
                                                     ),
                                                 ),
                                                 255.0,
-                                                robot.color,
+                                                robot.role_color,
                                             );
                                         }
                                     }
@@ -364,11 +378,10 @@ impl RadarApp {
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
                                         ui.label(
-                                            egui::RichText::new(if robot.ammo > 0 {
-                                                robot.ammo.to_string()
-                                            } else {
-                                                "—".into()
-                                            })
+                                            egui::RichText::new(robot.ammo.map_or_else(
+                                                || "N/A".to_owned(),
+                                                |ammo| ammo.to_string(),
+                                            ))
                                             .color(theme::text_faint())
                                             .size(12.0),
                                         );
@@ -385,7 +398,7 @@ impl RadarApp {
                 }
             });
 
-            white_card(&mut cols[2], "经济 / 占领", |ui| {
+            white_card(&mut cols[2], "经济", |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(
                         egui::RichText::new("当前资源 / 已获得资源")
@@ -412,8 +425,6 @@ impl RadarApp {
                     0.0
                 };
                 hp_bar(ui, ratio, theme::BLUE);
-                ui.add_space(10.0);
-                ui.label("（无有效数据）");
             });
         });
     }
