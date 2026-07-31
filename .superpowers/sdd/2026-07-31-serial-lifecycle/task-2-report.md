@@ -61,3 +61,21 @@ The lifecycle coverage review was addressed by adding tests that exercise the ac
 
 - Focused test runs still emit the repository's pre-existing unrelated compiler warnings.
 - Panic-safe synthetic worker tests intentionally print expected worker panic messages while `JoinHandle::join()` safely collects the panic.
+
+## Reopen Coverage Fix
+
+- Extended `app::tests::close_serial_and_on_exit_clear_connection_state_and_all_workers` to call the actual `RadarApp::close_serial()` twice and verify the second call leaves the app closed with no error or worker handles.
+- After the direct close, the same app test invokes the actual `RadarApp::open_serial()` path using `/definitely-not-a-serial-device`, then verifies the app remains closed, reports an open error, and has no stop flag or worker handles.
+- No physical UART is opened and no protocol or worker architecture changes were made.
+
+## Reopen-Fix Verification
+
+- `cargo test app::serial_workspace::tests -- --nocapture`: PASS, 4 passed, 0 failed.
+- `cargo test app::tests -- --nocapture`: PASS, 8 passed, 0 failed.
+- `cargo fmt --all --check`: PASS.
+- `git diff --check`: PASS.
+
+## Reopen-Fix Concerns
+
+- Existing unrelated compiler warnings remain.
+- Panic-safe synthetic worker tests print expected worker panic messages while joins safely collect them.

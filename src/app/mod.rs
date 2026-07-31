@@ -476,6 +476,21 @@ mod tests {
         assert!(app.serial_tx_handle.is_none());
         assert!(stop.load(Ordering::Relaxed));
 
+        app.close_serial();
+        assert!(!app.serial_open);
+        assert!(app.serial_error.is_none());
+        assert!(app.serial_stop.is_none());
+        assert!(app.serial_rx_handle.is_none());
+        assert!(app.serial_tx_handle.is_none());
+
+        app.serial_port_name = "/definitely-not-a-serial-device".to_owned();
+        app.open_serial();
+        assert!(!app.serial_open);
+        assert!(app.serial_error.is_some());
+        assert!(app.serial_stop.is_none());
+        assert!(app.serial_rx_handle.is_none());
+        assert!(app.serial_tx_handle.is_none());
+
         let stop = install_serial_lifecycle_state(&mut app);
         eframe::App::on_exit(&mut app, None);
         eframe::App::on_exit(&mut app, None);
@@ -486,21 +501,6 @@ mod tests {
         assert!(app.serial_rx_handle.is_none());
         assert!(app.serial_tx_handle.is_none());
         assert!(stop.load(Ordering::Relaxed));
-    }
-
-    #[test]
-    fn failed_reopen_keeps_serial_closed_without_uart() {
-        let mut serial_open = false;
-        let mut serial_error = None;
-
-        serial_open_failed(
-            &mut serial_open,
-            &mut serial_error,
-            "open: no physical UART in lifecycle test".to_owned(),
-        );
-
-        assert!(!serial_open);
-        assert!(serial_error.is_some());
     }
 
     #[test]
