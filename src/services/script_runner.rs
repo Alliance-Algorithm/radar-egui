@@ -11,6 +11,7 @@ use std::process::{Child, Command, Stdio};
 
 const RADAR_ROOT_ENV: &str = "ALLIANCE_RADAR_LOCATION_LIDAR_ROOT";
 const LASER_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
+const SDR_ROOT_ENV: &str = "ALLIANCE_RADAR_SDR_ROOT";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
 const RADAR_STDERR_LOG: &str = "/tmp/radar-egui-radar.stderr.log";
@@ -228,8 +229,8 @@ impl ScriptRunner {
     pub fn start_sdr(&mut self, enemy_color: &str) -> io::Result<()> {
         self.stop_sdr();
 
-        let sdr_dir = std::path::absolute(SDR_REPO).map_err(|error| {
-            contextual_error(error, "SDR", "resolve repository", Path::new(SDR_REPO))
+        let sdr_dir = resolve_sdr_root().map_err(|error| {
+            contextual_error(error, "SDR", "resolve repository", &sdr_root_candidate())
         })?;
         let script = sdr_dir.join("thread_init.py");
         let stderr = stderr_log(SDR_STDERR_LOG, "SDR")?;
@@ -329,6 +330,21 @@ pub fn resolve_laser_root() -> io::Result<PathBuf> {
     valid_laser_root(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../laser_guidance"))
 }
 
+pub fn resolve_sdr_root() -> io::Result<PathBuf> {
+    if let Some(root) = std::env::var_os(SDR_ROOT_ENV) {
+        return valid_sdr_root(PathBuf::from(root));
+    }
+
+    valid_sdr_root(Path::new(env!("CARGO_MANIFEST_DIR")).join(SDR_REPO))
+}
+
+fn sdr_root_candidate() -> PathBuf {
+    std::env::var_os(SDR_ROOT_ENV).map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join(SDR_REPO),
+        PathBuf::from,
+    )
+}
+
 fn laser_root_candidate() -> PathBuf {
     std::env::var_os(LASER_ROOT_ENV).map_or_else(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../laser_guidance"),
@@ -397,6 +413,10 @@ fn valid_laser_root(path: PathBuf) -> io::Result<PathBuf> {
         ".script/record",
     ];
     valid_root(path, &REQUIRED, "laser_guidance scripts")
+}
+
+fn valid_sdr_root(path: PathBuf) -> io::Result<PathBuf> {
+    valid_root(path, &["thread_init.py"], "SDR repository")
 }
 
 fn valid_root(path: PathBuf, required: &[&str], contract: &str) -> io::Result<PathBuf> {
@@ -477,6 +497,19 @@ mod tests {
         assert_eq!(LaserScript::Preview.script_name(), "preview-laser");
         assert_eq!(LaserScript::Stream.script_name(), "stream");
         assert_eq!(LaserScript::Record.script_name(), "record");
+    }
+
+    #[test]
+    fn resolve_sdr_root_uses_manifest_relative_default_and_requires_entrypoint() {
+        let root = resolve_sdr_root().expect("SDR repository should exist in the workspace");
+        assert_eq!(
+            root,
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../alliance_radar_sdr")
+                .canonicalize()
+                .unwrap()
+        );
+        assert!(root.join("thread_init.py").is_file());
     }
 
     #[test]
