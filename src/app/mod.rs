@@ -85,6 +85,7 @@ pub struct RadarApp {
     laser_auto: bool,
     stream_on_start: bool,
     record_on_start: bool,
+    radar_record_on_start: bool,
     process_command_error: Option<String>,
 
     laser_stage_overlay: bool,
@@ -170,6 +171,7 @@ impl Default for RadarApp {
             laser_auto: false,
             stream_on_start: true,
             record_on_start: false,
+            radar_record_on_start: false,
             process_command_error: None,
             laser_stage_overlay: true,
             laser_stage_demo: false,
@@ -192,12 +194,14 @@ fn start_all_options(
     stream: bool,
     record: bool,
     laser_auto: bool,
+    radar_record: bool,
 ) -> StartAllOptions {
     StartAllOptions {
         side,
         stream,
         record,
         laser_auto,
+        radar_record,
     }
 }
 
@@ -602,12 +606,13 @@ mod tests {
     }
 
     #[test]
-    fn start_all_options_preserve_laser_flags() {
-        let options = start_all_options(TeamSide::Blue, true, false, true);
+    fn start_all_options_preserve_laser_and_radar_flags() {
+        let options = start_all_options(TeamSide::Blue, true, false, true, true);
         assert_eq!(options.side, TeamSide::Blue);
         assert!(options.stream);
         assert!(!options.record);
         assert!(options.laser_auto);
+        assert!(options.radar_record);
     }
 
     #[test]

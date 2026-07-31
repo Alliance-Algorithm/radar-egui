@@ -94,7 +94,7 @@ radar-egui 是比赛系统的统一操作面板：
 - `alliance_radar_location_lidar` 已构建（ROS2 Jazzy workspace `ros_ws`，发布 LidarLocation 至 `tcp://127.0.0.1:5556`，见 `docs/lidar-location-protocol.md`）
 - Radar 仓库默认位于 manifest 相对路径 `../../alliance_radar_location_lidar`，可用 `ALLIANCE_RADAR_LOCATION_LIDAR_ROOT` 覆盖；必须包含 `ros_ws/install/setup.bash` 和 `ros_ws/src/radar_bringup/launch/competition.launch.py`
 - Laser 仓库默认位于 manifest 相对路径 `../../laser_guidance`，可用 `LASER_GUIDANCE_ROOT` 覆盖；当前脚本是 `.script/competition-laser`、`.script/preview-laser`、`.script/stream`、`.script/record`
-- Radar 启动会 source ROS2 Jazzy 和 workspace 的 Bash setup，再执行 `ros2 launch radar_bringup competition.launch.py side:=<red|blue>`
+- Radar 启动会 source ROS2 Jazzy 和 workspace 的 Bash setup，再执行 `ros2 launch radar_bringup competition.launch.py side:=<red|blue> enable_raw_recording:=<true|false>`（内录开关由 UI「Radar 相机内录」控制）
 - Rerun viewer 仅在需要可选 3D 可视化时安装（`cargo install rerun-cli --locked` 或 `pip install rerun-sdk`）
 - 点云数据源写入 `/pointcloud_frame`（见 `docs/pointcloud-producer-spec.md`）
 

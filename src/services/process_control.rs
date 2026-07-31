@@ -53,13 +53,15 @@ impl ProcessControl {
     pub fn start_radar<'a>(
         &self,
         side: impl Into<TeamSideInput<'a>>,
+        record: bool,
     ) -> Result<(), ProcessSendError> {
         let side = match side.into() {
             TeamSideInput::Side(side) => side,
             TeamSideInput::Legacy("blue") => TeamSide::Blue,
             TeamSideInput::Legacy(_) => TeamSide::Red,
         };
-        self.runtime.send(ProcessCommand::StartRadar(side))
+        self.runtime
+            .send(ProcessCommand::StartRadar { side, record })
     }
 
     pub fn start_sdr<'a>(
@@ -185,6 +187,7 @@ impl ProcessControl {
             stream: stream_cmd == "stream on",
             record: record_cmd == "record on",
             laser_auto: enemy_cmd == "enemy auto",
+            radar_record: false,
         })
     }
 
