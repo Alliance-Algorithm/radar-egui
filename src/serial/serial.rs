@@ -191,7 +191,15 @@ pub fn serial_start_transmitter(
                     if let Ok(frame_bytes) = frame.to_bytes() {
                         serial.send_data(&frame_bytes);
                     }
-                    thread::sleep(Duration::from_millis(100));
+                    for _ in 0..10 {
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
                 }
                 continue;
             }
@@ -245,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn idle_transmitter_stops_after_stop_is_set() {
         let serial = Serial::new(SerialConfig {
             port_name: "/dev/ptmx".into(),
@@ -258,5 +267,34 @@ mod tests {
 
         thread::sleep(Duration::from_millis(20));
         assert_worker_stops(handle, stop);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn multi_frame_transmitter_stops_between_targets() {
+        let serial = Serial::new(SerialConfig {
+            port_name: "/dev/ptmx".into(),
+            baud_rate: 115_200,
+        })
+        .expect("open test serial device");
+        let shared = Arc::new(Mutex::new(SharedData::default()));
+        let (tx, rx) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = serial_start_transmitter(serial, shared, rx, stop.clone());
+
+        tx.send(6).expect("send robot interaction notification");
+        thread::sleep(Duration::from_millis(20));
+
+        stop.store(true, Ordering::Relaxed);
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            handle
+                .join()
+                .expect("serial worker panicked while stopping");
+            done_tx.send(()).expect("send worker completion");
+        });
+        done_rx
+            .recv_timeout(Duration::from_millis(80))
+            .expect("multi-frame serial worker did not stop promptly");
     }
 }
