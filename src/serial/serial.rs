@@ -5,7 +5,7 @@ use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::{RobotInteractionData, SharedData};
 use crate::shared_data::{
     DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
     RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID, SITE_EVENT_CMD_ID,
 };
 use deku::prelude::*;
@@ -191,8 +191,8 @@ pub fn serial_start_transmitter(
                     data.radar_mark_process.to_bytes(),
                 ),
                 5 => (
-                    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    data.radar_autonomous_decision_sync.to_bytes(),
+                    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+                    data.radar_autonomous_decision.to_bytes(),
                 ),
                 6 => {
                     let mut sub_data = data.robot_interaction.subcontext_data.clone();
