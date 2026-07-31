@@ -190,7 +190,7 @@ pub fn serial_start_transmitter(
                     RADAR_MARK_PROCESS_CMD_ID,
                     data.radar_mark_process.to_bytes(),
                 ),
-                5 => (
+                crate::shared_data::IDX_RADAR_AUTONOMOUS_DECISION_DATA => (
                     RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
                     data.radar_autonomous_decision.to_bytes(),
                 ),
@@ -411,5 +411,58 @@ mod tests {
 
         stop.store(true, Ordering::Relaxed);
         handle.join().expect("receiver worker panicked");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn transmitter_sends_radar_autonomous_decision_as_0x0121() {
+        let (input, mut output) = serial2::SerialPort::pair().expect("open test serial pair");
+        output
+            .set_read_timeout(Duration::from_millis(50))
+            .expect("set test read timeout");
+        let serial = Serial::from_port(input);
+        let shared = Arc::new(Mutex::new(SharedData::default()));
+        {
+            let mut guard = shared.lock().unwrap();
+            guard.radar_autonomous_decision.radar_cmd = 1;
+            guard.radar_autonomous_decision.password_cmd = 2;
+            guard.radar_autonomous_decision.password = *b"ABCDEF";
+        }
+        let (tx, rx) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = serial_start_transmitter(
+            serial,
+            shared,
+            rx,
+            stop.clone(),
+            Arc::new(AtomicBool::new(true)),
+        );
+
+        tx.send(crate::shared_data::IDX_RADAR_AUTONOMOUS_DECISION_DATA)
+            .expect("send radar decision notification");
+
+        let mut frame = Vec::new();
+        let mut buf = [0u8; 64];
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        while frame.len() < 15 && std::time::Instant::now() < deadline {
+            match output.read(&mut buf) {
+                Ok(n) => frame.extend_from_slice(&buf[..n]),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => break,
+            }
+        }
+
+        assert_eq!(frame[0], 0xA5, "SOF");
+        let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
+        assert_eq!(
+            cmd_id, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+            "cmd_id 0x0121"
+        );
+        assert_eq!(&frame[7..15], &[1, 2, b'A', b'B', b'C', b'D', b'E', b'F']);
+
+        stop.store(true, Ordering::Relaxed);
+        handle.join().expect("transmitter worker panicked");
     }
 }

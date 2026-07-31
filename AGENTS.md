@@ -33,7 +33,7 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────────┴──────┐  │
 │  │ ZMQ SUB/PUB │  │ Serial RX/TX│  │ Video SHM   │  │ PCD SHM         │  │
 │  │ :5555/5556  │  │ (serial2)   │  │ /laser_frame│  │ /pointcloud_    │  │
-│  │ :5557(PUB)  │  │             │  │ (懒启动)    │  │ frame (懒启动)  │  │
+│  │ :5558(PUB)  │  │             │  │ (懒启动)    │  │ frame (懒启动)  │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -65,7 +65,7 @@ alliance_radar_location_lidar ─────┘                         Arc<Mut
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──写──▶ SharedData ──▶ UI 独立读取最新快照
                                       │
-                                      ├─ tx.send(idx) ──▶ ZMQ PUB 线程 ──▶ :5557
+                                      ├─ tx.send(idx) ──▶ ZMQ PUB 线程 ──▶ :5558
                                       │                    TransmitGameState /
                                       │                    TransmitRadarMarkProcess
                                       └─ tx.send(idx) ──▶ Serial TX (通知对应 idx 只发一帧)
@@ -85,7 +85,7 @@ model_to_map ──SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──
 
 PUB 消息（GameState / RadarMarkProcess）的 JSON 中包含 `cmd_id` 字段，其值复用 `shared_data.rs` 中定义的 DJI 协议 `CMD_ID` 常量，不另设 ZMQ 专用 ID。
 
-默认：SUB 连接 `tcp://127.0.0.1:5555` + `5556`；PUB 绑定 `tcp://*:5557`。
+默认：SUB 连接 `tcp://127.0.0.1:5555` + `5556`；PUB 绑定 `tcp://*:5558`。
 
 ## 启动编排
 
