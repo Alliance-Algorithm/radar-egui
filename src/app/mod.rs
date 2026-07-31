@@ -264,29 +264,33 @@ impl RadarApp {
                     log::info!("Serial opened on {}", self.serial_port_name);
                 }
                 Err(e) => {
-                    self.serial_error = Some(format!("clone port: {e}"));
+                    serial_open_failed(
+                        &mut self.serial_open,
+                        &mut self.serial_error,
+                        format!("clone port: {e}"),
+                    );
                     log::error!("Serial clone failed: {e}");
                 }
             },
             Err(e) => {
-                self.serial_error = Some(format!("open: {e}"));
+                serial_open_failed(
+                    &mut self.serial_open,
+                    &mut self.serial_error,
+                    format!("open: {e}"),
+                );
                 log::error!("Serial open failed: {e}");
             }
         }
     }
 
     fn close_serial(&mut self) {
-        if let Some(ref stop) = self.serial_stop {
-            stop.store(true, Ordering::Relaxed);
-        }
-        self.serial_stop = None;
-        if let Some(handle) = self.serial_rx_handle.take() {
-            let _ = handle.join();
-        }
-        if let Some(handle) = self.serial_tx_handle.take() {
-            let _ = handle.join();
-        }
+        close_serial_workers(
+            &mut self.serial_stop,
+            &mut self.serial_rx_handle,
+            &mut self.serial_tx_handle,
+        );
         self.serial_open = false;
+        self.serial_error = None;
         log::info!("Serial closed");
     }
 
@@ -326,6 +330,27 @@ impl RadarApp {
     }
 }
 
+fn close_serial_workers(
+    stop: &mut Option<Arc<AtomicBool>>,
+    rx_handle: &mut Option<std::thread::JoinHandle<()>>,
+    tx_handle: &mut Option<std::thread::JoinHandle<()>>,
+) {
+    if let Some(stop) = stop.take() {
+        stop.store(true, Ordering::Relaxed);
+    }
+    if let Some(handle) = rx_handle.take() {
+        let _ = handle.join();
+    }
+    if let Some(handle) = tx_handle.take() {
+        let _ = handle.join();
+    }
+}
+
+fn serial_open_failed(serial_open: &mut bool, serial_error: &mut Option<String>, error: String) {
+    *serial_open = false;
+    *serial_error = Some(error);
+}
+
 impl eframe::App for RadarApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         app_clear_color()
@@ -356,6 +381,10 @@ impl eframe::App for RadarApp {
 
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.close_serial();
+    }
 }
 
 /// Returns the clear color that matches [`theme::app_bg()`] for the current theme.
@@ -370,6 +399,57 @@ pub(super) fn app_clear_color() -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lifecycle_handles() -> (
+        Option<Arc<AtomicBool>>,
+        Option<std::thread::JoinHandle<()>>,
+        Option<std::thread::JoinHandle<()>>,
+    ) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let rx = std::thread::spawn(|| {});
+        let tx = std::thread::spawn(|| panic!("test worker panic"));
+        (Some(stop), Some(rx), Some(tx))
+    }
+
+    #[test]
+    fn close_serial_workers_stops_and_clears_all_handles_even_after_panic() {
+        let (mut stop, mut rx, mut tx) = lifecycle_handles();
+        let stop_ref = stop.as_ref().unwrap().clone();
+
+        close_serial_workers(&mut stop, &mut rx, &mut tx);
+
+        assert!(stop.is_none());
+        assert!(stop_ref.load(Ordering::Relaxed));
+        assert!(rx.is_none());
+        assert!(tx.is_none());
+    }
+
+    #[test]
+    fn closing_serial_workers_twice_is_harmless() {
+        let (mut stop, mut rx, mut tx) = lifecycle_handles();
+        close_serial_workers(&mut stop, &mut rx, &mut tx);
+
+        close_serial_workers(&mut stop, &mut rx, &mut tx);
+
+        assert!(stop.is_none());
+        assert!(rx.is_none());
+        assert!(tx.is_none());
+    }
+
+    #[test]
+    fn serial_open_failure_keeps_connection_closed() {
+        let mut serial_open = true;
+        let mut serial_error = None;
+
+        serial_open_failed(
+            &mut serial_open,
+            &mut serial_error,
+            "open: test failure".to_owned(),
+        );
+
+        assert!(!serial_open);
+        assert_eq!(serial_error.as_deref(), Some("open: test failure"));
+    }
 
     #[test]
     fn start_all_options_preserve_laser_flags() {

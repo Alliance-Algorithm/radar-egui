@@ -241,12 +241,17 @@ impl RadarApp {
                             ui.end_row();
                         });
                     ui.add_space(10.0);
-                    if ui
-                        .add_enabled(
-                            !self.serial_open,
-                            egui::Button::new("Open serial (active until app exit)")
-                                .fill(theme::BLUE),
-                        )
+                    if self.serial_open {
+                        if ui
+                            .button("Close serial")
+                            .on_hover_text("Stop serial RX/TX workers")
+                            .clicked()
+                        {
+                            self.close_serial();
+                            self.push_serial_log(SerialLogKind::Info, "CLOSE serial".to_string());
+                        }
+                    } else if ui
+                        .add(egui::Button::new("Open serial").fill(theme::BLUE))
                         .clicked()
                     {
                         self.open_serial();
