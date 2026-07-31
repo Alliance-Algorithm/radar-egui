@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+const SERIAL_READ_TIMEOUT: Duration = Duration::from_millis(50);
+
 /// Serial port handle for raw byte I/O via `serial2`.
 pub struct Serial {
     serial_port: SerialPort,
@@ -26,13 +28,15 @@ pub struct Serial {
 impl Serial {
     /// Open a serial port with the given config.
     pub fn new(config: SerialConfig) -> std::io::Result<Self> {
-        let port = SerialPort::open(config.port_name, |mut s: Settings| {
+        let mut port = SerialPort::open(config.port_name, |mut s: Settings| {
             s.set_raw();
             s.set_baud_rate(config.baud_rate)?;
             s.set_char_size(serial2::CharSize::Bits8);
             s.set_stop_bits(serial2::StopBits::One);
             Ok(s)
         })?;
+
+        port.set_read_timeout(SERIAL_READ_TIMEOUT)?;
 
         Ok(Self {
             serial_port: port,
@@ -50,10 +54,7 @@ impl Serial {
                     buffer.truncate(n);
                     return Ok(buffer);
                 }
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::Interrupted =>
-                {
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
@@ -78,7 +79,10 @@ impl Serial {
     }
 
     #[cfg(test)]
-    pub fn from_port(serial_port: SerialPort) -> Self {
+    pub fn from_port(mut serial_port: SerialPort) -> Self {
+        serial_port
+            .set_read_timeout(SERIAL_READ_TIMEOUT)
+            .expect("configure test serial read timeout");
         Self {
             serial_port,
             sent: Arc::new(Mutex::new(Vec::new())),
@@ -127,7 +131,11 @@ pub fn serial_start_transmitter(
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let Ok(idx) = tx_rx.recv() else { break };
+        let idx = match tx_rx.recv_timeout(SERIAL_READ_TIMEOUT) {
+            Ok(idx) => idx,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         let data = serial_data.lock().unwrap_or_else(|e| {
             log::error!("SharedData mutex poisoned in serial TX");
             e.into_inner()
@@ -201,4 +209,54 @@ pub fn serial_start_transmitter(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_worker_stops(handle: thread::JoinHandle<()>, stop: Arc<AtomicBool>) {
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            handle.join().expect("serial worker panicked");
+            done_tx.send(()).expect("send worker completion");
+        });
+
+        stop.store(true, Ordering::Relaxed);
+        done_rx
+            .recv_timeout(Duration::from_millis(500))
+            .expect("serial worker did not stop promptly");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn idle_receiver_stops_after_stop_is_set() {
+        let serial = Serial::new(SerialConfig {
+            port_name: "/dev/ptmx".into(),
+            baud_rate: 115_200,
+        })
+        .expect("open test serial device");
+        let shared = Arc::new(Mutex::new(SharedData::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = serial_start_receiver(serial, shared, Vec::new(), stop.clone());
+
+        thread::sleep(Duration::from_millis(20));
+        assert_worker_stops(handle, stop);
+    }
+
+    #[test]
+    fn idle_transmitter_stops_after_stop_is_set() {
+        let serial = Serial::new(SerialConfig {
+            port_name: "/dev/ptmx".into(),
+            baud_rate: 115_200,
+        })
+        .expect("open test serial device");
+        let shared = Arc::new(Mutex::new(SharedData::default()));
+        let (_tx, rx) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = serial_start_transmitter(serial, shared, rx, stop.clone());
+
+        thread::sleep(Duration::from_millis(20));
+        assert_worker_stops(handle, stop);
+    }
 }
