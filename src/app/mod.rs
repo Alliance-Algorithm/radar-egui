@@ -411,6 +411,17 @@ mod tests {
         (Some(stop), Some(rx), Some(tx))
     }
 
+    fn install_serial_lifecycle_state(app: &mut RadarApp) -> Arc<AtomicBool> {
+        let (stop, rx, tx) = lifecycle_handles();
+        let stop_ref = stop.as_ref().unwrap().clone();
+        app.serial_stop = stop;
+        app.serial_rx_handle = rx;
+        app.serial_tx_handle = tx;
+        app.serial_open = true;
+        app.serial_error = Some("stale serial error".to_owned());
+        stop_ref
+    }
+
     #[test]
     fn close_serial_workers_stops_and_clears_all_handles_even_after_panic() {
         let (mut stop, mut rx, mut tx) = lifecycle_handles();
@@ -449,6 +460,47 @@ mod tests {
 
         assert!(!serial_open);
         assert_eq!(serial_error.as_deref(), Some("open: test failure"));
+    }
+
+    #[test]
+    fn close_serial_and_on_exit_clear_connection_state_and_all_workers() {
+        let mut app = RadarApp::default();
+        let stop = install_serial_lifecycle_state(&mut app);
+
+        app.close_serial();
+
+        assert!(!app.serial_open);
+        assert!(app.serial_error.is_none());
+        assert!(app.serial_stop.is_none());
+        assert!(app.serial_rx_handle.is_none());
+        assert!(app.serial_tx_handle.is_none());
+        assert!(stop.load(Ordering::Relaxed));
+
+        let stop = install_serial_lifecycle_state(&mut app);
+        eframe::App::on_exit(&mut app, None);
+        eframe::App::on_exit(&mut app, None);
+
+        assert!(!app.serial_open);
+        assert!(app.serial_error.is_none());
+        assert!(app.serial_stop.is_none());
+        assert!(app.serial_rx_handle.is_none());
+        assert!(app.serial_tx_handle.is_none());
+        assert!(stop.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn failed_reopen_keeps_serial_closed_without_uart() {
+        let mut serial_open = false;
+        let mut serial_error = None;
+
+        serial_open_failed(
+            &mut serial_open,
+            &mut serial_error,
+            "open: no physical UART in lifecycle test".to_owned(),
+        );
+
+        assert!(!serial_open);
+        assert!(serial_error.is_some());
     }
 
     #[test]
