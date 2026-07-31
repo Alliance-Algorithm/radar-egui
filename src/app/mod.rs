@@ -122,7 +122,7 @@ impl Default for RadarApp {
             shared.clone(),
         );
 
-        let zmq_pub = ZmqPubRuntime::start("tcp://*:5558", shared.clone());
+        let zmq_pub = ZmqPubRuntime::start(&["tcp://*:5557", "tcp://*:5558"], shared.clone());
 
         if let Ok(mut guard) = shared.lock() {
             guard.radar_side = "red".to_string();
@@ -495,8 +495,8 @@ mod tests {
 
     static ZMQ_TEST_PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5558`; tests
-    /// must serialize that window and release the port before dropping the app.
+    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5557` + `tcp://*:5558`; tests
+    /// must serialize that window and release the ports before dropping the app.
     fn radar_app_for_test() -> (std::sync::MutexGuard<'static, ()>, RadarApp) {
         let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
         let mut app = RadarApp::default();

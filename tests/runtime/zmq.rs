@@ -273,7 +273,7 @@ fn test_zmq_pub_game_state_format() {
 
     let (pub_sock, sub_sock) = make_pair();
     let (tx, rx) = std::sync::mpsc::channel();
-    let _handle = zmq_start_pub(pub_sock, shared.clone(), rx, stop.clone());
+    let _handle = zmq_start_pub(vec![pub_sock], shared.clone(), rx, stop.clone());
 
     thread::sleep(Duration::from_millis(50));
 
@@ -325,7 +325,7 @@ fn test_zmq_pub_radar_mark_process_format() {
 
     let (pub_sock, sub_sock) = make_pair();
     let (tx, rx) = std::sync::mpsc::channel();
-    let _handle = zmq_start_pub(pub_sock, shared.clone(), rx, stop.clone());
+    let _handle = zmq_start_pub(vec![pub_sock], shared.clone(), rx, stop.clone());
 
     thread::sleep(Duration::from_millis(50));
 

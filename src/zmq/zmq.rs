@@ -95,7 +95,7 @@ pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
 }
 
 pub fn zmq_start_pub(
-    pub_socket: zmq2::Socket,
+    pub_sockets: Vec<zmq2::Socket>,
     shared: Arc<Mutex<SharedData>>,
     rx: mpsc::Receiver<usize>,
     stop: Arc<AtomicBool>,
@@ -116,7 +116,9 @@ pub fn zmq_start_pub(
                     "sync_timestamp": lock.game_state.sync_timestamp,
                 });
                 log::info!("ZMQ PUB GameState: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
+                for socket in &pub_sockets {
+                    zmq_send(socket, &msg.to_string()).ok();
+                }
             }
             IDX_RADAR_MARK_PROCESS => {
                 let msg = serde_json::json!({
@@ -139,7 +141,9 @@ pub fn zmq_start_pub(
                     "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
                 });
                 log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
+                for socket in &pub_sockets {
+                    zmq_send(socket, &msg.to_string()).ok();
+                }
             }
             IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
                 let msg = serde_json::json!({
@@ -150,7 +154,9 @@ pub fn zmq_start_pub(
                     "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
                 });
                 log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
+                for socket in &pub_sockets {
+                    zmq_send(socket, &msg.to_string()).ok();
+                }
             }
             _ => {
                 log::warn!("ZMQ PUB unknown idx: {}", idx);
