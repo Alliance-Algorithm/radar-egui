@@ -98,6 +98,7 @@ pub struct RadarApp {
     serial_rx_handle: Option<std::thread::JoinHandle<()>>,
     serial_tx_handle: Option<std::thread::JoinHandle<()>>,
     serial_stop: Option<Arc<AtomicBool>>,
+    serial_worker_health: Option<Arc<AtomicBool>>,
 }
 
 #[derive(PartialEq)]
@@ -180,6 +181,7 @@ impl Default for RadarApp {
             serial_rx_handle: None,
             serial_tx_handle: None,
             serial_stop: None,
+            serial_worker_health: None,
         }
     }
 }
@@ -248,17 +250,31 @@ impl RadarApp {
                 Ok(port_tx) => {
                     let shared = self.shared_reader.inner();
                     let stop = Arc::new(AtomicBool::new(false));
+                    let worker_health = Arc::new(AtomicBool::new(true));
                     let pub_tx = self.zmq_pub.pub_tx.lock().unwrap().clone();
                     let (tx_tx, tx_rx) = std::sync::mpsc::channel();
                     let notify_all = match pub_tx {
                         Some(zmq_tx) => vec![zmq_tx, tx_tx],
                         None => vec![tx_tx],
                     };
-                    let rx = serial_start_receiver(port, shared.clone(), notify_all, stop.clone());
-                    let tx = serial_start_transmitter(port_tx, shared.clone(), tx_rx, stop.clone());
+                    let rx = serial_start_receiver(
+                        port,
+                        shared.clone(),
+                        notify_all,
+                        stop.clone(),
+                        worker_health.clone(),
+                    );
+                    let tx = serial_start_transmitter(
+                        port_tx,
+                        shared.clone(),
+                        tx_rx,
+                        stop.clone(),
+                        worker_health.clone(),
+                    );
                     self.serial_rx_handle = Some(rx);
                     self.serial_tx_handle = Some(tx);
                     self.serial_stop = Some(stop);
+                    self.serial_worker_health = Some(worker_health);
                     self.serial_open = true;
                     self.serial_error = None;
                     log::info!("Serial opened on {}", self.serial_port_name);
@@ -289,9 +305,35 @@ impl RadarApp {
             &mut self.serial_rx_handle,
             &mut self.serial_tx_handle,
         );
+        self.serial_worker_health = None;
         self.serial_open = false;
         self.serial_error = None;
         log::info!("Serial closed");
+    }
+
+    fn reconcile_serial_workers(&mut self) {
+        let worker_failed = self
+            .serial_worker_health
+            .as_ref()
+            .is_some_and(|health| !health.load(Ordering::Relaxed));
+        let worker_finished = self
+            .serial_rx_handle
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            || self
+                .serial_tx_handle
+                .as_ref()
+                .is_some_and(std::thread::JoinHandle::is_finished);
+        if self.serial_open && (worker_failed || worker_finished) {
+            self.serial_error = Some("serial worker stopped".to_owned());
+            close_serial_workers(
+                &mut self.serial_stop,
+                &mut self.serial_rx_handle,
+                &mut self.serial_tx_handle,
+            );
+            self.serial_worker_health = None;
+            self.serial_open = false;
+        }
     }
 
     fn update_pointcloud(&mut self) {
@@ -357,6 +399,7 @@ impl eframe::App for RadarApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.reconcile_serial_workers();
         self.setup_fonts(ctx);
         theme::set_dark_mode(self.dark_mode);
         self.ensure_minimap_texture(ctx);
@@ -400,6 +443,17 @@ pub(super) fn app_clear_color() -> [f32; 4] {
 mod tests {
     use super::*;
 
+    static ZMQ_TEST_PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5557`; tests
+    /// must serialize that window and release the port before dropping the app.
+    fn radar_app_for_test() -> (std::sync::MutexGuard<'static, ()>, RadarApp) {
+        let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
+        let mut app = RadarApp::default();
+        app.zmq_pub.stop();
+        (guard, app)
+    }
+
     fn lifecycle_handles() -> (
         Option<Arc<AtomicBool>>,
         Option<std::thread::JoinHandle<()>>,
@@ -420,6 +474,23 @@ mod tests {
         app.serial_open = true;
         app.serial_error = Some("stale serial error".to_owned());
         stop_ref
+    }
+
+    #[test]
+    fn reconcile_serial_workers_closes_after_worker_exit() {
+        let (_zmq_guard, mut app) = radar_app_for_test();
+        let stop = install_serial_lifecycle_state(&mut app);
+        let health = Arc::new(AtomicBool::new(false));
+        app.serial_worker_health = Some(health);
+
+        app.reconcile_serial_workers();
+
+        assert!(!app.serial_open);
+        assert_eq!(app.serial_error.as_deref(), Some("serial worker stopped"));
+        assert!(app.serial_stop.is_none());
+        assert!(app.serial_rx_handle.is_none());
+        assert!(app.serial_tx_handle.is_none());
+        assert!(stop.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -464,7 +535,7 @@ mod tests {
 
     #[test]
     fn close_serial_and_on_exit_clear_connection_state_and_all_workers() {
-        let mut app = RadarApp::default();
+        let (_zmq_guard, mut app) = radar_app_for_test();
         let stop = install_serial_lifecycle_state(&mut app);
 
         app.close_serial();
