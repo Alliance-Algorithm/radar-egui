@@ -85,6 +85,7 @@ pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<z
         sub_socket.connect(addr)?;
     }
     sub_socket.set_subscribe(b"")?;
+    sub_socket.set_rcvtimeo(50)?;
     Ok(sub_socket)
 }
 
