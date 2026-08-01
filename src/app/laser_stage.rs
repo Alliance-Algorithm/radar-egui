@@ -145,7 +145,7 @@ impl RadarApp {
                 );
             }
 
-            if !has_live_feed && !self.laser_stage_demo {
+            if texture.is_none() && !self.laser_stage_demo {
                 let center = video_rect.center();
                 painter.text(
                     Pos2::new(center.x, center.y - 10.0),

@@ -63,11 +63,14 @@ pub struct ZmqPubRuntime {
 }
 
 impl ZmqPubRuntime {
-    pub fn start(bind_addr: &str, shared: Arc<Mutex<SharedData>>) -> Self {
+    pub fn start(bind_addrs: &[&str], shared: Arc<Mutex<SharedData>>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let (pub_tx, pub_rx) = std::sync::mpsc::channel();
-        let pub_socket = crate::zmq::zmq::zmq_init_pub(1, bind_addr).expect("ZMQ PUB init failed");
-        let handle = crate::zmq::zmq::zmq_start_pub(pub_socket, shared, pub_rx, stop.clone());
+        let sockets: Vec<_> = bind_addrs
+            .iter()
+            .map(|addr| crate::zmq::zmq::zmq_init_pub(1, addr).expect("ZMQ PUB init failed"))
+            .collect();
+        let handle = crate::zmq::zmq::zmq_start_pub(sockets, shared, pub_rx, stop.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),

@@ -16,16 +16,20 @@ use radar_egui::zmq::zmq::{zmq_send, zmq_start_pub, zmq_start_sub};
 const INPROC_ADDR: &str = "inproc://zmq-test";
 
 fn make_pair() -> (zmq2::Socket, zmq2::Socket) {
+    make_pair_at("inproc://zmq-test")
+}
+
+fn make_pair_at(addr: &str) -> (zmq2::Socket, zmq2::Socket) {
     let ctx = zmq2::Context::new();
     ctx.set_io_threads(1).unwrap();
 
     let pub_sock = ctx.socket(zmq2::PUB).unwrap();
-    pub_sock.bind(INPROC_ADDR).unwrap();
+    pub_sock.bind(addr).unwrap();
 
     let sub_sock = ctx.socket(zmq2::SUB).unwrap();
     sub_sock.set_subscribe(b"").unwrap();
     sub_sock.set_rcvtimeo(200).unwrap(); // 200ms timeout so the thread can check stop
-    sub_sock.connect(INPROC_ADDR).unwrap();
+    sub_sock.connect(addr).unwrap();
 
     (pub_sock, sub_sock)
 }
@@ -273,7 +277,7 @@ fn test_zmq_pub_game_state_format() {
 
     let (pub_sock, sub_sock) = make_pair();
     let (tx, rx) = std::sync::mpsc::channel();
-    let _handle = zmq_start_pub(pub_sock, shared.clone(), rx, stop.clone());
+    let _handle = zmq_start_pub(vec![pub_sock], shared.clone(), rx, stop.clone());
 
     thread::sleep(Duration::from_millis(50));
 
@@ -325,7 +329,7 @@ fn test_zmq_pub_radar_mark_process_format() {
 
     let (pub_sock, sub_sock) = make_pair();
     let (tx, rx) = std::sync::mpsc::channel();
-    let _handle = zmq_start_pub(pub_sock, shared.clone(), rx, stop.clone());
+    let _handle = zmq_start_pub(vec![pub_sock], shared.clone(), rx, stop.clone());
 
     thread::sleep(Duration::from_millis(50));
 
@@ -414,4 +418,47 @@ fn test_zmq_sub_sdr_updates_position() {
     stop.store(true, Ordering::Relaxed);
     drop(pub_sock);
     thread::sleep(Duration::from_millis(300));
+}
+
+#[test]
+fn test_zmq_pub_fans_out_to_all_sockets() {
+    let shared = Arc::new(Mutex::new(SharedData::default()));
+    let stop = Arc::new(AtomicBool::new(false));
+
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state = GameStateData {
+            game_type: 2,
+            game_progress: 4,
+            stage_remain_time: 300,
+            sync_timestamp: 999,
+        };
+    }
+
+    let (pub_a, sub_a) = make_pair_at("inproc://zmq-fanout-a");
+    let (pub_b, sub_b) = make_pair_at("inproc://zmq-fanout-b");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _handle = zmq_start_pub(vec![pub_a, pub_b], shared.clone(), rx, stop.clone());
+
+    thread::sleep(Duration::from_millis(50));
+
+    tx.send(IDX_GAME_STATE).unwrap();
+    thread::sleep(Duration::from_millis(100));
+
+    let mut buf_a = zmq2::Message::new();
+    let mut buf_b = zmq2::Message::new();
+    sub_a.recv(&mut buf_a, 0).unwrap();
+    sub_b.recv(&mut buf_b, 0).unwrap();
+    let parsed_a: serde_json::Value = serde_json::from_str(buf_a.as_str().unwrap()).unwrap();
+    let parsed_b: serde_json::Value = serde_json::from_str(buf_b.as_str().unwrap()).unwrap();
+
+    assert_eq!(parsed_a["cmd_id"], GAME_STATE_CMD_ID);
+    assert_eq!(parsed_b["cmd_id"], GAME_STATE_CMD_ID);
+    assert_eq!(parsed_a, parsed_b);
+    assert_eq!(parsed_a["game_type"], 2);
+    assert_eq!(parsed_a["game_progress"], 4);
+    assert_eq!(parsed_a["stage_remain_time"], 300);
+    assert_eq!(parsed_a["sync_timestamp"], 999);
+
+    stop.store(true, Ordering::Relaxed);
 }

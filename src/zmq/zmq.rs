@@ -95,7 +95,7 @@ pub fn zmq_send(pub_socket: &zmq2::Socket, msg: &str) -> zmq2::Result<()> {
 }
 
 pub fn zmq_start_pub(
-    pub_socket: zmq2::Socket,
+    pub_sockets: Vec<zmq2::Socket>,
     shared: Arc<Mutex<SharedData>>,
     rx: mpsc::Receiver<usize>,
     stop: Arc<AtomicBool>,
@@ -105,58 +105,67 @@ pub fn zmq_start_pub(
             break;
         }
         let Ok(idx) = rx.recv() else { break };
-        let lock = shared.lock().unwrap_or_else(|e| e.into_inner());
-        match idx {
-            IDX_GAME_STATE => {
-                let msg = serde_json::json!({
-                    "cmd_id": GAME_STATE_CMD_ID,
-                    "game_type": lock.game_state.game_type,
-                    "game_progress": lock.game_state.game_progress,
-                    "stage_remain_time": lock.game_state.stage_remain_time,
-                    "sync_timestamp": lock.game_state.sync_timestamp,
-                });
-                log::info!("ZMQ PUB GameState: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
+        let payload = {
+            let lock = shared.lock().unwrap_or_else(|e| e.into_inner());
+            match idx {
+                IDX_GAME_STATE => {
+                    let msg = serde_json::json!({
+                        "cmd_id": GAME_STATE_CMD_ID,
+                        "game_type": lock.game_state.game_type,
+                        "game_progress": lock.game_state.game_progress,
+                        "stage_remain_time": lock.game_state.stage_remain_time,
+                        "sync_timestamp": lock.game_state.sync_timestamp,
+                    });
+                    log::info!("ZMQ PUB GameState: {}", msg);
+                    Some(msg.to_string())
+                }
+                IDX_RADAR_MARK_PROCESS => {
+                    let msg = serde_json::json!({
+                        "cmd_id": RADAR_MARK_PROCESS_CMD_ID,
+                        "opponent_hero_vulnerable": lock.radar_mark_process.opponent_hero_vulnerable,
+                        "opponent_engineer_vulnerable": lock.radar_mark_process.opponent_engineer_vulnerable,
+                        "opponent_infantry_3_vulnerable": lock.radar_mark_process.opponent_infantry_3_vulnerable,
+                        "opponent_infantry_4_vulnerable": lock.radar_mark_process.opponent_infantry_4_vulnerable,
+                        "opponent_aerial_marked": lock.radar_mark_process.opponent_aerial_marked,
+                        "opponent_sentry_vulnerable": lock.radar_mark_process.opponent_sentry_vulnerable,
+                        "ally_hero_marked": lock.radar_mark_process.ally_hero_marked,
+                        "ally_engineer_marked": lock.radar_mark_process.ally_engineer_marked,
+                        "ally_infantry_3_marked": lock.radar_mark_process.ally_infantry_3_marked,
+                        "ally_infantry_4_marked": lock.radar_mark_process.ally_infantry_4_marked,
+                        "ally_aerial_marked": lock.radar_mark_process.ally_aerial_marked,
+                        "ally_sentry_marked": lock.radar_mark_process.ally_sentry_marked,
+                        "opponent_aerial_targeted": lock.radar_mark_process.opponent_aerial_targeted,
+                        "opponent_aerial_countered": lock.radar_mark_process.opponent_aerial_countered,
+                        "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
+                        "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
+                    });
+                    log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
+                    Some(msg.to_string())
+                }
+                IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
+                    let msg = serde_json::json!({
+                        "cmd_id": RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+                        "double_weakness_chance": lock.radar_autonomous_decision_sync.double_weakness_chance,
+                        "double_weakness_active": lock.radar_autonomous_decision_sync.double_weakness_active,
+                        "encryption_rank": lock.radar_autonomous_decision_sync.encryption_rank,
+                        "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
+                    });
+                    log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
+                    Some(msg.to_string())
+                }
+                _ => {
+                    log::warn!("ZMQ PUB unknown idx: {}", idx);
+                    None
+                }
             }
-            IDX_RADAR_MARK_PROCESS => {
-                let msg = serde_json::json!({
-                    "cmd_id": RADAR_MARK_PROCESS_CMD_ID,
-                    "opponent_hero_vulnerable": lock.radar_mark_process.opponent_hero_vulnerable,
-                    "opponent_engineer_vulnerable": lock.radar_mark_process.opponent_engineer_vulnerable,
-                    "opponent_infantry_3_vulnerable": lock.radar_mark_process.opponent_infantry_3_vulnerable,
-                    "opponent_infantry_4_vulnerable": lock.radar_mark_process.opponent_infantry_4_vulnerable,
-                    "opponent_aerial_marked": lock.radar_mark_process.opponent_aerial_marked,
-                    "opponent_sentry_vulnerable": lock.radar_mark_process.opponent_sentry_vulnerable,
-                    "ally_hero_marked": lock.radar_mark_process.ally_hero_marked,
-                    "ally_engineer_marked": lock.radar_mark_process.ally_engineer_marked,
-                    "ally_infantry_3_marked": lock.radar_mark_process.ally_infantry_3_marked,
-                    "ally_infantry_4_marked": lock.radar_mark_process.ally_infantry_4_marked,
-                    "ally_aerial_marked": lock.radar_mark_process.ally_aerial_marked,
-                    "ally_sentry_marked": lock.radar_mark_process.ally_sentry_marked,
-                    "opponent_aerial_targeted": lock.radar_mark_process.opponent_aerial_targeted,
-                    "opponent_aerial_countered": lock.radar_mark_process.opponent_aerial_countered,
-                    "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
-                    "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
-                });
-                log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
-            }
-            IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
-                let msg = serde_json::json!({
-                    "cmd_id": RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    "double_weakness_chance": lock.radar_autonomous_decision_sync.double_weakness_chance,
-                    "double_weakness_active": lock.radar_autonomous_decision_sync.double_weakness_active,
-                    "encryption_rank": lock.radar_autonomous_decision_sync.encryption_rank,
-                    "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
-                });
-                log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
-                zmq_send(&pub_socket, &msg.to_string()).ok();
-            }
-            _ => {
-                log::warn!("ZMQ PUB unknown idx: {}", idx);
+        };
+        if let Some(payload) = payload {
+            for socket in &pub_sockets {
+                if let Err(error) = zmq_send(socket, &payload) {
+                    log::error!("ZMQ PUB send failed: {error}");
+                }
             }
         }
-        drop(lock);
     })
 }
 
