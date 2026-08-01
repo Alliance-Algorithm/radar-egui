@@ -50,7 +50,7 @@
 
 | 仓库 | 语言 | 角色 | 数据输出 |
 |------|------|------|----------|
-| **radar-egui** | Rust | HUD + 进程编排 + 协议桥接 | ZMQ PUB tcp://*:5557, FIFO `/tmp/laser_cmd`, 串口 TX |
+| **radar-egui** | Rust | HUD + 进程编排 + 协议桥接 | ZMQ PUB tcp://*:5557/:5558, FIFO `/tmp/laser_cmd`, 串口 TX |
 | **alliance_radar_sdr** | Python | SDR 无线信号解析 | ZMQ PUB tcp://127.0.0.1:5555 |
 | **laser_guidance** | C++ | 激光目标检测 + 视频推流 | ZMQ PUB :5556 + SHM `/laser_frame` |
 | **alliance_radar_location_lidar** | C++/ROS2 | 激光雷达定位 + 相机/融合/桥接（进程控制启动目标） | ZMQ PUB tcp://127.0.0.1:5556（LidarLocation） |
@@ -191,7 +191,7 @@ Rerun/gRPC 仅是可选可视化输出，不是 ROS2 Radar、LidarLocation 或�
 | `ZMQ_SUB_SDR` | 0x2002 | → Rust | `ReceiveSdr` | SDR 全量 |
 | `ZMQ_SUB_LASER` | 0x2003 | → Rust | `ReceiveLaser` | 激光观测 |
 
-- SUB 连接到 `tcp://127.0.0.1:5555` + `:5556`，PUB 绑定 `tcp://*:5557`
+- SUB 连接到 `tcp://127.0.0.1:5555` + `:5556`，PUB 绑定 `tcp://*:5557` + `tcp://*:5558`（:5557 供 SDR zmq_sub，:5558 供 radar_bridge）
 - 格式：JSON (serde_json)，SUB 接收超时 100ms
 - PUB 没有单独的 `0x1001`/`0x1002` ZMQ ID；不要为 GameState/RadarMark invent 新协议值
 

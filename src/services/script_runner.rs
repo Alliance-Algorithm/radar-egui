@@ -238,10 +238,14 @@ impl ScriptRunner {
         })?;
         let script = sdr_dir.join("thread_init.py");
         let stderr = stderr_log(SDR_STDERR_LOG, "SDR")?;
+        let pythonpath = match std::env::var("PYTHONPATH") {
+            Ok(existing) => format!(".:/usr/lib/python3/dist-packages:{existing}"),
+            Err(_) => ".:/usr/lib/python3/dist-packages".to_owned(),
+        };
         let child = Command::new("python3")
             .args(["thread_init.py", "--enemySide", enemy_color])
             .current_dir(&sdr_dir)
-            .env("PYTHONPATH", ".:/usr/lib/python3/dist-packages")
+            .env("PYTHONPATH", pythonpath)
             .stdout(Stdio::null())
             .stderr(stderr)
             .stdin(Stdio::null())
