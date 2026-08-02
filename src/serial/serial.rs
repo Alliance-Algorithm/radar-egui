@@ -26,13 +26,14 @@ pub struct Serial {
 impl Serial {
     /// Open a serial port with the given config.
     pub fn new(config: SerialConfig) -> std::io::Result<Self> {
-        let port = SerialPort::open(config.port_name, |mut s: Settings| {
+        let mut port = SerialPort::open(config.port_name, |mut s: Settings| {
             s.set_raw();
             s.set_baud_rate(config.baud_rate)?;
             s.set_char_size(serial2::CharSize::Bits8);
             s.set_stop_bits(serial2::StopBits::One);
             Ok(s)
         })?;
+        port.set_read_timeout(Duration::from_millis(1))?;
 
         Ok(Self {
             serial_port: port,
@@ -51,10 +52,10 @@ impl Serial {
                 }
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::Interrupted =>
+                        || e.kind() == std::io::ErrorKind::Interrupted
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
+                    return Ok(Vec::new());
                 }
                 Err(e) => return Err(e),
             }
@@ -108,8 +109,10 @@ pub fn serial_start_receiver(
             }
             match serial.receive_data() {
                 Ok(add_data) => {
-                    data.extend_from_slice(&add_data);
-                    serial_parser.parser(&mut data);
+                    if !add_data.is_empty() {
+                        data.extend_from_slice(&add_data);
+                        serial_parser.parser(&mut data);
+                    }
                 }
                 Err(error) => {
                     log::error!("Serial read error: {error}");

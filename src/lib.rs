@@ -1,4 +1,5 @@
 pub mod app;
+pub mod logging;
 pub mod laser;
 pub mod pointcloud;
 pub mod rerun_visualizer;
