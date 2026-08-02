@@ -125,7 +125,13 @@ impl RadarApp {
             );
 
             let content = inset_rect(stage_rect, STAGE_PAD);
-            let video_rect = letterbox_rect(content, VIDEO_ASPECT);
+            let video_rect = match texture {
+                Some(tex) => {
+                    let size = tex.size_vec2();
+                    letterbox_rect(content, size.x / size.y.max(1.0))
+                }
+                None => letterbox_rect(content, VIDEO_ASPECT),
+            };
             painter.rect_filled(video_rect, 10.0, Color32::from_rgb(0x0f, 0x12, 0x18));
 
             let obs = if self.laser_stage_demo {
