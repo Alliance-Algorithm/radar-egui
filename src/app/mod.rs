@@ -323,13 +323,13 @@ impl RadarApp {
     }
 
     fn close_serial(&mut self) {
+        self.zmq_sub.set_tx_notify(None);
         close_serial_workers(
             &mut self.serial_stop,
             &mut self.serial_rx_handle,
             &mut self.serial_tx_handle,
         );
         self.serial_worker_health = None;
-        self.zmq_sub.set_tx_notify(None);
         self.serial_open = false;
         self.serial_error = None;
         log::info!("Serial closed");
@@ -351,13 +351,13 @@ impl RadarApp {
         if self.serial_open && (worker_failed || worker_finished) {
             self.serial_error = Some("serial worker stopped".to_owned());
             self.push_serial_log(SerialLogKind::Err, "serial worker stopped".to_owned());
+            self.zmq_sub.set_tx_notify(None);
             close_serial_workers(
                 &mut self.serial_stop,
                 &mut self.serial_rx_handle,
                 &mut self.serial_tx_handle,
             );
             self.serial_worker_health = None;
-            self.zmq_sub.set_tx_notify(None);
                 self.serial_open = false;
         }
     }
