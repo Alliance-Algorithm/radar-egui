@@ -12,6 +12,8 @@ use std::process::{Child, Command, Stdio};
 const RADAR_ROOT_ENV: &str = "ALLIANCE_RADAR_LOCATION_LIDAR_ROOT";
 const LASER_ROOT_ENV: &str = "LASER_GUIDANCE_ROOT";
 const SDR_ROOT_ENV: &str = "ALLIANCE_RADAR_SDR_ROOT";
+const RADAR_CONTAINER_ENV: &str = "RADAR_CONTAINER";
+const RADAR_CONTAINER_DEFAULT: &str = "devcontainer-radar-develop-1";
 const LASER_FIFO: &str = "/tmp/laser_cmd";
 const SDR_REPO: &str = "../alliance_radar_sdr";
 const RADAR_STDERR_LOG: &str = "/tmp/radar-egui-radar.stderr.log";
@@ -123,24 +125,32 @@ impl ScriptRunner {
         let repo = resolve_radar_root().map_err(|error| {
             contextual_error(error, "Radar", "resolve workspace", &radar_root_candidate())
         })?;
-        let cmd = format!(
-            "source /opt/ros/jazzy/setup.bash && \
-             source ros_ws/install/setup.bash && \
+        let container = radar_container();
+        let inner = format!(
+            "pkill -f \"[h]ikcamera_ros_driver\"; \
+             pkill -f \"[h]ost_sdk_sample\"; \
+             pkill -f \"[r]adar_bridge_node\"; \
+             pkill -f \"[r]adar_lidar_node\"; \
+             pkill -f \"[r]adar_camera_node\"; \
+             pkill -f \"[r]adar_fusion_node\"; \
+             sleep 1; \
+             source /opt/ros/jazzy/setup.bash && \
+             source /workspace/ros_ws/install/setup.bash && \
              exec ros2 launch radar_bringup competition.launch.py side:={side} enable_raw_recording:={record}"
         );
 
         let stderr = stderr_log(RADAR_STDERR_LOG, "Radar")?;
-        let child = Command::new("bash")
-            .args(["-lc", &cmd])
+        let child = Command::new("docker")
+            .args(["exec", container, "bash", "-lc", &inner])
             .current_dir(&repo)
             .stdout(Stdio::null())
             .stderr(stderr)
             .stdin(Stdio::null())
             .spawn()
-            .map_err(|error| contextual_error(error, "Radar", "spawn bash launch", &repo))?;
+            .map_err(|error| contextual_error(error, "Radar", "spawn docker exec launch", &repo))?;
 
         log::info!(
-            "Started Radar (side={side}, enable_raw_recording={record}, pid={})",
+            "Started Radar in container {container} (side={side}, enable_raw_recording={record}, pid={})",
             child.id()
         );
         self.radar_child = Some(child);
@@ -151,8 +161,16 @@ impl ScriptRunner {
         if let Some(mut child) = self.radar_child.take() {
             let _ = child.kill();
             let _ = child.wait();
-            log::info!("Stopped Radar");
         }
+        let container = radar_container();
+        let inner = "pkill -f \"[r]os2 launch\"; pkill -f \"[h]ikcamera_ros_driver\"; \
+                     pkill -f \"[h]ost_sdk_sample\"; pkill -f \"[r]adar_bridge_node\"; \
+                     pkill -f \"[r]adar_lidar_node\"; pkill -f \"[r]adar_camera_node\"; \
+                     pkill -f \"[r]adar_fusion_node\"; true";
+        let _ = Command::new("docker")
+            .args(["exec", container, "bash", "-lc", inner])
+            .output();
+        log::info!("Stopped Radar in container {container}");
     }
 
     pub fn is_radar_running(&self) -> bool {
@@ -328,6 +346,15 @@ fn radar_root_candidate() -> PathBuf {
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../alliance_radar_location_lidar"),
         PathBuf::from,
     )
+}
+
+/// ROS2 Radar 运行容器名：`RADAR_CONTAINER` 环境变量覆盖，默认开发容器。
+fn radar_container() -> &'static str {
+    static CONTAINER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CONTAINER.get_or_init(|| match std::env::var(RADAR_CONTAINER_ENV) {
+        Ok(name) if !name.trim().is_empty() => name.trim().to_owned(),
+        _ => RADAR_CONTAINER_DEFAULT.to_owned(),
+    })
 }
 
 pub fn resolve_laser_root() -> io::Result<PathBuf> {
