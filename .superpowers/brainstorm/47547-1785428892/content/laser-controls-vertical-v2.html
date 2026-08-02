@@ -1,0 +1,51 @@
+<h2>单列版：沿用现有 Laser 面板</h2>
+<p class="subtitle">不重做视觉结构，只重新梳理从上到下的控制顺序，并修正 Serial 页比赛进度数字的窄宽度重叠。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Laser 右侧面板 · 建议顺序</div>
+    <div class="mockup-body" style="background:#111827;color:#e5e7eb;padding:16px">
+      <div style="background:#1f2937;border-radius:10px;padding:12px;margin-bottom:10px">
+        <b>数据源</b><div style="margin-top:9px;color:#94a3b8">Laser ZMQ　● Listening</div><div style="margin-top:7px">Camera　<input class="mock-input" value="/dev/video0" style="width:145px"></div>
+      </div>
+      <div style="background:#1f2937;border:1px solid #7f1d1d;border-radius:10px;padding:12px;margin-bottom:10px">
+        <b>比赛配置</b>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span>我方阵营</span><span><b style="background:#b91c1c;padding:5px 12px;border-radius:6px">红方</b>　<span style="opacity:.4">蓝方</span></span></div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:7px">Radar: side=red　·　Laser/SDR: enemy=blue</div>
+      </div>
+      <div style="background:#1f2937;border-radius:10px;padding:12px;margin-bottom:10px">
+        <b>脚本控制</b><div style="font-size:11px;color:#94a3b8;margin-top:5px">Laser 专属 · Auto 仅影响 Laser</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px"><button class="mock-button">Competition</button><button class="mock-button">Preview</button><button class="mock-button">Stream</button><button class="mock-button">Record</button></div>
+        <div style="display:flex;gap:7px;margin-top:7px"><button class="mock-button" style="flex:1;background:#0f766e">Auto</button><button class="mock-button" style="flex:1">Stop Laser</button></div>
+      </div>
+      <div style="background:#1f2937;border-radius:10px;padding:12px;margin-bottom:10px">
+        <b>外部进程</b>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span>ROS2 Radar　<span style="color:#64748b">Idle</span></span><button class="mock-button">Start</button></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px"><span>SDR　<span style="color:#64748b">Idle</span></span><button class="mock-button">Start</button></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px"><span>Laser　<span style="color:#64748b">Idle</span></span><button class="mock-button">Competition</button></div>
+        <button class="mock-button" style="display:block;width:100%;margin-top:11px;background:#2563eb">Start All · Radar → SDR → Laser</button>
+        <div style="display:flex;gap:7px;margin-top:7px"><button class="mock-button" style="flex:1">Retry Failed</button><button class="mock-button" style="flex:1;background:#7f1d1d">Stop All</button></div>
+        <div style="font-size:11px;color:#fbbf24;margin-top:8px">Ready · 我方红 / 敌方蓝</div>
+      </div>
+      <div style="background:#1f2937;border-radius:10px;padding:12px"><b>流控制</b><div style="display:flex;gap:7px;margin-top:9px"><button class="mock-button" style="flex:1">Stream on</button><button class="mock-button" style="flex:1">Stream off</button></div></div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Serial · 比赛进度重叠修正</div>
+    <div class="mockup-body" style="background:#111827;color:#e5e7eb;padding:18px">
+      <div style="background:#1f2937;border-radius:10px;padding:14px;max-width:285px">
+        <div style="display:flex;align-items:start;gap:12px"><div style="width:56px;height:56px;border-radius:50%;border:7px solid #2563eb"></div><div><b style="font-size:18px">未开始</b><div style="font-size:12px;color:#94a3b8;margin-top:4px">剩余 07:00</div></div></div>
+        <div style="display:flex;justify-content:space-between;gap:10px;margin-top:15px;font-size:12px;color:#94a3b8"><span>比赛进度</span><span style="white-space:nowrap">0 / 420 s</span></div>
+        <div style="height:7px;border-radius:9px;background:#334155;margin-top:7px;overflow:hidden"><div style="width:0%;height:100%;background:#2563eb"></div></div>
+        <div style="font-size:11px;color:#64748b;margin-top:12px">数字留在卡片可用宽度内，不再使用可能跨越右边界的嵌套右对齐布局。</div>
+      </div>
+      <div style="margin-top:18px;color:#94a3b8;font-size:13px"><b style="color:#e5e7eb">窄屏兜底：</b>当宽度不足时，数字自动换到进度条上方的下一行，始终不与右侧区域重叠。</div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>新增按键范围</h3>
+  <p>保留现有按钮，仅新增 <b>Retry Failed</b> 和明确的三组件启动步骤/错误信息。Auto 仍只属于 Laser，不影响 ROS2 Radar 或 SDR。</p>
+</div>

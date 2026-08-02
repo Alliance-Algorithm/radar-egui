@@ -291,6 +291,54 @@ impl RadarApp {
                 });
         });
         ui.add_space(12.0);
+        white_card(ui, "Radar 启动详情", |ui| {
+            self.refresh_radar_nodes();
+            if let Some((_, nodes)) = &self.radar_node_check {
+                egui::Grid::new("radar_node_check")
+                    .num_columns(2)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for (name, ok) in nodes {
+                            ui.label(
+                                egui::RichText::new(if *ok { "●" } else { "○" })
+                                    .color(if *ok { theme::GREEN } else { theme::RED })
+                                    .size(13.0),
+                            );
+                            ui.label(egui::RichText::new(name).color(theme::text()).size(12.0));
+                            ui.end_row();
+                        }
+                    });
+            } else {
+                ui.label(
+                    egui::RichText::new("（未检查，等待容器）")
+                        .color(theme::text_faint())
+                        .size(12.0),
+                );
+            }
+            ui.add_space(8.0);
+            self.refresh_radar_log();
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| match &self.radar_log_tail {
+                    Some((_, tail)) if !tail.is_empty() => {
+                        ui.label(
+                            egui::RichText::new(tail)
+                                .monospace()
+                                .color(theme::text_muted())
+                                .size(11.0),
+                        );
+                    }
+                    _ => {
+                        ui.label(
+                            egui::RichText::new("（launch 日志为空）")
+                                .color(theme::text_faint())
+                                .size(12.0),
+                        );
+                    }
+                });
+        });
+        ui.add_space(12.0);
         white_card(ui, "点云源", |ui| {
             let has_data = self
                 .pointcloud_feed
@@ -412,6 +460,65 @@ impl RadarApp {
         white_card(ui, "状态", |ui| {
             self.show_pointcloud_status(ui);
         });
+    }
+
+    /// 每 5 秒检查一次容器内雷达节点是否齐全。
+    fn refresh_radar_nodes(&mut self) {
+        const INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+        if self
+            .radar_node_check
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() < INTERVAL)
+        {
+            return;
+        }
+        let container = crate::services::script_runner::radar_container();
+        let expected = [
+            "hikcamera_ros_driver_node",
+            "host_sdk_sample",
+            "radar_lidar_node",
+            "radar_camera_node",
+            "radar_fusion_node",
+            "radar_bridge_node",
+        ];
+        let nodes = std::process::Command::new("docker")
+            .args([
+                "exec",
+                container,
+                "bash",
+                "-lc",
+                "source /opt/ros/jazzy/setup.bash && ros2 node list 2>/dev/null || true",
+            ])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .unwrap_or_default();
+        let status = expected
+            .iter()
+            .map(|name| {
+                let ok = nodes.lines().any(|line| line.trim() == *name);
+                ((*name).to_owned(), ok)
+            })
+            .collect();
+        self.radar_node_check = Some((std::time::Instant::now(), status));
+    }
+
+    /// 每 2 秒读取一次 launch stderr 日志尾部。
+    fn refresh_radar_log(&mut self) {
+        const INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+        if self
+            .radar_log_tail
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() < INTERVAL)
+        {
+            return;
+        }
+        let tail = std::fs::read_to_string("/tmp/radar-egui-radar.stderr.log")
+            .map(|content| {
+                let keep = content.chars().rev().take(8000).collect::<String>();
+                keep.chars().rev().collect()
+            })
+            .unwrap_or_default();
+        self.radar_log_tail = Some((std::time::Instant::now(), tail));
     }
 }
 

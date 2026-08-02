@@ -125,32 +125,28 @@ impl ScriptRunner {
         let repo = resolve_radar_root().map_err(|error| {
             contextual_error(error, "Radar", "resolve workspace", &radar_root_candidate())
         })?;
-        let container = radar_container();
-        let inner = format!(
-            "pkill -f \"[h]ikcamera_ros_driver\"; \
-             pkill -f \"[h]ost_sdk_sample\"; \
-             pkill -f \"[r]adar_bridge_node\"; \
-             pkill -f \"[r]adar_lidar_node\"; \
-             pkill -f \"[r]adar_camera_node\"; \
-             pkill -f \"[r]adar_fusion_node\"; \
-             sleep 1; \
-             source /opt/ros/jazzy/setup.bash && \
-             source /workspace/ros_ws/install/setup.bash && \
-             exec ros2 launch radar_bringup competition.launch.py side:={side} enable_raw_recording:={record}"
-        );
-
+        let script = repo.join(".script").join("start-competition");
         let stderr = stderr_log(RADAR_STDERR_LOG, "Radar")?;
-        let child = Command::new("docker")
-            .args(["exec", container, "bash", "-lc", &inner])
+        // side 必传；map/sensor 传空串走脚本默认；record 透传第 4 参数
+        let child = Command::new("bash")
+            .args([
+                script.as_os_str(),
+                std::ffi::OsStr::new(side),
+                std::ffi::OsStr::new(""),
+                std::ffi::OsStr::new(""),
+                std::ffi::OsStr::new(&record.to_string()),
+            ])
             .current_dir(&repo)
             .stdout(Stdio::null())
             .stderr(stderr)
             .stdin(Stdio::null())
             .spawn()
-            .map_err(|error| contextual_error(error, "Radar", "spawn docker exec launch", &repo))?;
+            .map_err(|error| {
+                contextual_error(error, "Radar", "spawn start-competition", &script)
+            })?;
 
         log::info!(
-            "Started Radar in container {container} (side={side}, enable_raw_recording={record}, pid={})",
+            "Started Radar via start-competition (side={side}, enable_raw_recording={record}, pid={})",
             child.id()
         );
         self.radar_child = Some(child);
@@ -170,7 +166,8 @@ impl ScriptRunner {
         let _ = Command::new("docker")
             .args(["exec", container, "bash", "-lc", inner])
             .output();
-        log::info!("Stopped Radar in container {container}");
+        kill_host_radar_processes();
+        log::info!("Stopped Radar in container {container} and on host");
     }
 
     pub fn is_radar_running(&self) -> bool {
@@ -282,8 +279,12 @@ impl ScriptRunner {
         if let Some(mut child) = self.sdr_child.take() {
             let _ = child.kill();
             let _ = child.wait();
-            log::info!("Stopped SDR bridge");
         }
+        // 清理手动启动的 SDR 进程（egui 命令行不含 thread_init.py，不会自杀）
+        let _ = Command::new("pkill")
+            .args(["-f", "thread_init.py"])
+            .output();
+        log::info!("Stopped SDR bridge");
     }
 
     pub fn is_sdr_running(&self) -> bool {
@@ -349,12 +350,27 @@ fn radar_root_candidate() -> PathBuf {
 }
 
 /// ROS2 Radar 运行容器名：`RADAR_CONTAINER` 环境变量覆盖，默认开发容器。
-fn radar_container() -> &'static str {
+pub(crate) fn radar_container() -> &'static str {
     static CONTAINER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CONTAINER.get_or_init(|| match std::env::var(RADAR_CONTAINER_ENV) {
         Ok(name) if !name.trim().is_empty() => name.trim().to_owned(),
         _ => RADAR_CONTAINER_DEFAULT.to_owned(),
     })
+}
+
+/// 清理宿主机上手动启动的雷达进程（egui 进程命令行不含这些关键字，不会自杀）。
+fn kill_host_radar_processes() {
+    for pattern in [
+        "competition.launch.py",
+        "hikcamera_ros_driver",
+        "host_sdk_sample",
+        "radar_bridge_node",
+        "radar_lidar_node",
+        "radar_camera_node",
+        "radar_fusion_node",
+    ] {
+        let _ = Command::new("pkill").args(["-f", pattern]).output();
+    }
 }
 
 pub fn resolve_laser_root() -> io::Result<PathBuf> {

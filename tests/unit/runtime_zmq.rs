@@ -87,7 +87,12 @@ fn test_zmq_sub_sdr_populates_fields() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+    let _handle = zmq_start_sub(
+        sub_sock,
+        shared.clone(),
+        stop.clone(),
+        Arc::new(Mutex::new(None)),
+    );
 
     thread::sleep(Duration::from_millis(50)); // let sub handshake
 
@@ -181,11 +186,17 @@ fn test_zmq_sub_sdr_populates_fields() {
 }
 
 #[test]
-fn test_zmq_sub_sdr_populates_robot_interaction() {    let shared = Arc::new(Mutex::new(SharedData::default()));
+fn test_zmq_sub_sdr_populates_robot_interaction() {
+    let shared = Arc::new(Mutex::new(SharedData::default()));
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+    let _handle = zmq_start_sub(
+        sub_sock,
+        shared.clone(),
+        stop.clone(),
+        Arc::new(Mutex::new(None)),
+    );
 
     thread::sleep(Duration::from_millis(50));
 
@@ -231,7 +242,12 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+    let _handle = zmq_start_sub(
+        sub_sock,
+        shared.clone(),
+        stop.clone(),
+        Arc::new(Mutex::new(None)),
+    );
 
     thread::sleep(Duration::from_millis(50));
 
@@ -250,8 +266,7 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
     {
         let guard = shared.lock().unwrap();
         assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance,
-            2,
+            guard.radar_autonomous_decision_sync.double_weakness_chance, 2,
             "chance incremented once"
         );
         assert_eq!(
@@ -265,8 +280,7 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
     {
         let guard = shared.lock().unwrap();
         assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance,
-            3,
+            guard.radar_autonomous_decision_sync.double_weakness_chance, 3,
             "chance incremented twice"
         );
         assert_eq!(
@@ -286,8 +300,7 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
     {
         let guard = shared.lock().unwrap();
         assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance,
-            0,
+            guard.radar_autonomous_decision_sync.double_weakness_chance, 0,
             "chance reset at game_progress == 5"
         );
         assert_eq!(
@@ -308,8 +321,7 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
     {
         let guard = shared.lock().unwrap();
         assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance,
-            2,
+            guard.radar_autonomous_decision_sync.double_weakness_chance, 2,
             "chance untouched outside stage 4/5"
         );
         assert_eq!(
@@ -331,7 +343,12 @@ fn test_zmq_sub_lidar_populates_positions() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+    let _handle = zmq_start_sub(
+        sub_sock,
+        shared.clone(),
+        stop.clone(),
+        Arc::new(Mutex::new(None)),
+    );
 
     thread::sleep(Duration::from_millis(50));
 
@@ -457,7 +474,12 @@ fn test_zmq_sub_sdr_updates_position() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+    let _handle = zmq_start_sub(
+        sub_sock,
+        shared.clone(),
+        stop.clone(),
+        Arc::new(Mutex::new(None)),
+    );
 
     thread::sleep(Duration::from_millis(50));
 

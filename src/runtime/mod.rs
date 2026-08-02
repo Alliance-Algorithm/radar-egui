@@ -35,7 +35,8 @@ impl ZmqSubRuntime {
         let tx_slot = Arc::new(Mutex::new(None));
         let addrs = addrs.to_vec();
         let sub_socket = crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
-        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared, stop.clone(), tx_slot.clone());
+        let handle =
+            crate::zmq::zmq::zmq_start_sub(sub_socket, shared, stop.clone(), tx_slot.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),

@@ -8,9 +8,8 @@ use radar_egui::robot_interaction_id::DeviceId;
 use radar_egui::serial::serial::{serial_start_transmitter, Serial};
 use radar_egui::serial::serialconfig::SerialConfig;
 use radar_egui::shared_data::{
-    MinimapReceiveRadarData, SharedData, IDX_MINIMAP_RECEIVE_RADAR,
-    MINIMAP_RECEIVE_RADAR_CMD_ID, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
-    ROBOT_INTERACTION_CMD_ID,
+    MinimapReceiveRadarData, SharedData, IDX_MINIMAP_RECEIVE_RADAR, MINIMAP_RECEIVE_RADAR_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, ROBOT_INTERACTION_CMD_ID,
 };
 
 fn stop_worker(tx: mpsc::Sender<usize>, handle: thread::JoinHandle<()>, stop: Arc<AtomicBool>) {
@@ -139,8 +138,7 @@ fn broadcast_sends_five_interaction_frames() {
     assert_eq!(cmd_id, ROBOT_INTERACTION_CMD_ID, "decision cmd_id 0x0301");
     let subcmd = u16::from_le_bytes([decision[7], decision[8]]);
     assert_eq!(
-        subcmd,
-        RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+        subcmd, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
         "decision subcmd 0x0121",
     );
     let sender = u16::from_le_bytes([decision[9], decision[10]]);
@@ -153,7 +151,11 @@ fn broadcast_sends_five_interaction_frames() {
         let frame = &bytes[decision_len + i * 127..decision_len + (i + 1) * 127];
         assert_eq!(frame[0], 0xA5, "frame {} SOF", i);
         let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
-        assert_eq!(cmd_id, ROBOT_INTERACTION_CMD_ID, "frame {} cmd_id 0x0301", i);
+        assert_eq!(
+            cmd_id, ROBOT_INTERACTION_CMD_ID,
+            "frame {} cmd_id 0x0301",
+            i
+        );
         let subcmd = u16::from_le_bytes([frame[7], frame[8]]);
         assert_eq!(subcmd, 0x0200, "frame {} subcmd 0x0200", i);
     }

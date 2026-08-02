@@ -101,6 +101,8 @@ pub struct RadarApp {
     serial_tx_handle: Option<std::thread::JoinHandle<()>>,
     serial_stop: Option<Arc<AtomicBool>>,
     serial_worker_health: Option<Arc<AtomicBool>>,
+    radar_node_check: Option<(std::time::Instant, Vec<(String, bool)>)>,
+    radar_log_tail: Option<(std::time::Instant, String)>,
 }
 
 #[derive(PartialEq)]
@@ -183,7 +185,7 @@ impl RadarApp {
             laser_auto: false,
             stream_on_start: true,
             record_on_start: false,
-            radar_record_on_start: false,
+            radar_record_on_start: true,
             process_command_error: None,
             laser_stage_overlay: true,
             laser_stage_demo: false,
@@ -197,6 +199,8 @@ impl RadarApp {
             serial_tx_handle: None,
             serial_stop: None,
             serial_worker_health: None,
+            radar_node_check: None,
+            radar_log_tail: None,
         }
     }
 }
@@ -358,10 +362,10 @@ impl RadarApp {
                 &mut self.serial_tx_handle,
             );
             self.serial_worker_health = None;
-                self.serial_open = false;
+            self.zmq_sub.set_tx_notify(None);
+            self.serial_open = false;
         }
     }
-
 
     fn update_pointcloud(&mut self) {
         let Some(rec) = self.rerun_viz.recording_stream() else {

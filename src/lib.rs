@@ -1,6 +1,6 @@
 pub mod app;
-pub mod logging;
 pub mod laser;
+pub mod logging;
 pub mod pointcloud;
 pub mod rerun_visualizer;
 pub mod robot_interaction_id;
