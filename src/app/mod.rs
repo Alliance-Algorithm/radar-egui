@@ -113,6 +113,12 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
+        Self::new_with_zmq_pub_ports(5557, 5558)
+    }
+}
+
+impl RadarApp {
+    fn new_with_zmq_pub_ports(pub_port_1: u16, pub_port_2: u16) -> Self {
         let (shared_reader, _shared_writer) = SharedReader::new_pair();
         let shared = shared_reader.inner();
         let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
@@ -122,7 +128,13 @@ impl Default for RadarApp {
             shared.clone(),
         );
 
-        let zmq_pub = ZmqPubRuntime::start(&["tcp://*:5557", "tcp://*:5558"], shared.clone());
+        let zmq_pub = ZmqPubRuntime::start(
+            &[
+                &format!("tcp://*:{pub_port_1}"),
+                &format!("tcp://*:{pub_port_2}"),
+            ],
+            shared.clone(),
+        );
 
         if let Ok(mut guard) = shared.lock() {
             guard.radar_side = "red".to_string();
@@ -495,11 +507,12 @@ mod tests {
 
     static ZMQ_TEST_PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5557` + `tcp://*:5558`; tests
-    /// must serialize that window and release the ports before dropping the app.
+    /// `RadarApp::default()` starts ZMQ runtimes and binds `tcp://*:5557` + `tcp://*:5558`;
+    /// tests use dedicated ports (5657/5658) so a running radar-egui instance does not
+    /// collide, and serialize on the lock to release the ports before dropping the app.
     fn radar_app_for_test() -> (std::sync::MutexGuard<'static, ()>, RadarApp) {
         let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
-        let mut app = RadarApp::default();
+        let mut app = RadarApp::new_with_zmq_pub_ports(5657, 5658);
         app.zmq_pub.stop();
         app.zmq_sub.stop();
         (guard, app)
