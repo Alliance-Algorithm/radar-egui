@@ -9,12 +9,16 @@ impl RadarApp {
         let snapshot = self.process_control.snapshot();
 
         white_card(ui, "脚本控制", |ui| {
-            let running = snapshot.laser.managed;
+            let running = snapshot.laser.managed || snapshot.daemon_available;
             let active_label = snapshot
                 .laser
                 .active_laser
                 .map(|script| script.label())
-                .unwrap_or("Idle");
+                .unwrap_or(if snapshot.daemon_available {
+                    "daemon"
+                } else {
+                    "Idle"
+                });
 
             ui.horizontal(|ui| {
                 ui.label(
