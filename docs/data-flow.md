@@ -88,20 +88,18 @@ alliance_radar_sdr → ZMQ PUB :5555 → radar-egui ZMQ SUB ──直接写─�
 ```
 DJI Referee ──UART──▶ Serial RX ──▶ parser ──写──▶ SharedReader 所有的 Arc<Mutex<SharedData>>
                                       │                              │
-                                      ├─ idx ──▶ ZMQ PUB             └─▶ Serial UI 独立读取最新快照
-                                      │          (查询 SharedData)       (仅串口打开时记录变化)
-                                      └─ idx ──▶ Serial TX
-                                                 (查询 SharedData → UART)
+                                      └─ idx ──▶ ZMQ PUB             └─▶ Serial UI 独立读取最新快照
+                                                 (查询 SharedData)       (仅串口打开时记录变化)
 ```
 
-串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。`open_serial()` 把 ZMQ PUB sender 和 Serial TX sender 一并交给 parser，所以每个完成帧的 idx 分别通知这两个消费者；idx 不路由到 UI。
+串口 RX/TX 由用户在 Serial UI 点击打开后通过 `open_serial()` 启动，不在 `RadarApp::default` 自动启动。`open_serial()` 只把 ZMQ PUB sender 交给 parser（每个完成帧的 idx 通知 PUB）；串口 TX 的通知 channel 经 `zmq_sub.set_tx_notify()` 接入 ZMQ SUB 线程，因此 TX 只由 SDR / Lidar 数据驱动，idx 不路由到 UI。
 
 **帧格式**：
 ```
 SOF(1B=0xA5) | data_len(2B LE) | seq(1B) | CRC8(1B) | cmd_id(2B LE) | data[N] | CRC16(2B LE)
 ```
 
-**RX 协议表**：
+**RX 协议表**（均为服务器→雷达下行，解析后只写 SharedData，不回发）：
 
 | cmd_id | 名称 | 长度 | 字段 |
 |--------|------|------|------|
@@ -111,8 +109,16 @@ SOF(1B=0xA5) | data_len(2B LE) | seq(1B) | CRC8(1B) | cmd_id(2B LE) | data[N] | 
 | 0x0105 | 飞镖发射 | 3B | remain_time(u8) + hit_target(3b) + hit_count(3b) + selected(3b) |
 | 0x020C | 雷达标记进度 | 2B | 16×1b 标记/易伤 (详见表↓) |
 | 0x020E | 雷达自主决策同步 | 1B | weakness_chance(2b) + active(1b) + encrypt(2b) + modifiable(1b) |
-| 0x0301 | 机器人交互 | ≤118B | sub_cmd_id(2B) + sender/receiver(各2B) + sub_data |
-| 0x0305 | 小地图雷达 | 48B | 12 机器人 × u16 x/y |
+
+通知：0x0001 → `IDX_GAME_STATE`、0x020C → `IDX_RADAR_MARK_PROCESS`（→ ZMQ PUB）；0x0002/0x0101/0x0105 只写 SharedData；0x020E 只写 SharedData（供自主决策读取）。
+
+**TX 协议表**（仅 3 种帧，由 ZMQ SUB 通知触发，无 timeout 阻塞发送）：
+
+| 帧 | 触发 | 说明 |
+|----|------|------|
+| 0x0301 subcmd=0x0121 | SDR | 雷达自主决策单帧，sender=雷达、receiver=RefereeServer(0x8080)，**优先发送**；数据=radar_cmd + password_cmd(默认 2) + password[6] |
+| 0x0301 subcmd=0x0200 | SDR | SDR 数据广播 5 目标（hero/步兵3/步兵4/哨兵/无人机），帧间 5ms |
+| 0x0305 | Lidar | 小地图单帧（SharedData.minimap_receive，12 机器人 × u16 x/y） |
 
 **0x020C 雷达标记进度位域**：
 ```
@@ -192,23 +198,30 @@ Rerun/gRPC 仅是可选可视化输出，不是 ROS2 Radar、LidarLocation 或�
 | `ZMQ_SUB_LASER` | 0x2003 | → Rust | `ReceiveLaser` | 激光观测 |
 
 - SUB 连接到 `tcp://127.0.0.1:5555` + `:5556`，PUB 绑定 `tcp://*:5557` + `tcp://*:5558`（:5557 供 SDR zmq_sub，:5558 供 radar_bridge）
-- 格式：JSON (serde_json)，SUB 接收超时 100ms
+- 格式：JSON (serde_json)，SUB 阻塞接收（无超时，stop 时线程 detach 不 join）
 - PUB 没有单独的 `0x1001`/`0x1002` ZMQ ID；不要为 GameState/RadarMark invent 新协议值
 
 ### 3.2 串口 ↔ ZMQ 桥接
 
 ```
-Serial RX → parser → SharedData + tx.send(idx) ─┬→ ZMQ PUB 查询 SharedData → JSON (:5557/:5558)
-                                                └→ Serial TX 查询 SharedData → serial_package() → UART TX
-ZMQ SUB ← JSON → SharedData → UI 最新快照
+Serial RX → parser → SharedData + tx.send(idx) ──▶ ZMQ PUB 查询 SharedData → JSON (:5557/:5558)
+ZMQ SUB ← JSON → SharedData ──tx.send(idx)──▶ Serial TX → serial_package() → UART TX
 ```
 
-Parser 的 `usize` 通知索引只决定已完成帧触发哪类发布/发送；`SharedData` 始终是数据真源。Serial TX 阻塞等待自己的 idx receiver；ZMQ SUB 当前只写 `SharedData`，没有连接到该 sender，所以 ZMQ 接收不会触发 UART 发送。协议索引包括：
+Parser 的 `usize` 通知索引只决定已完成帧触发哪类发布；`SharedData` 始终是数据真源。Serial TX 阻塞等待自己的 idx receiver，由 ZMQ SUB 通知驱动（SDR → 0x0301 决策单帧优先 + 0x0200 广播；Lidar → 0x0305）。串口 RX 帧不回发。协议索引包括：
 ```
-0=GAME_STATE 1=GAME_RESULT 2=SITE_EVENT 3=DART 4=RADAR_MARK
-5=RADAR_SYNC 6=ROBOT_INTERACT 7=RADAR_DECISION 8=MINIMAP
-9-14=SDR 位置/血量/弹药/状态/增益/密钥
+0=GAME_STATE 1=RADAR_MARK_PROCESS 2=ROBOT_INTERACTION 3=MINIMAP_RECEIVE_RADAR
 ```
+
+### 3.3 雷达自主决策（SDR 写入时评估）
+
+ZMQ SUB 收到 SDR 消息写 SharedData 后，同步读取 0x020E 同步数据（`radar_autonomous_decision_sync`）与 `game_state.game_progress` 评估：
+
+- `game_progress == 4`（比赛进行）：`double_weakness_chance > 0` → 本地 +1；且 `active == 0` → `radar_autonomous_decision.radar_cmd` +1（随 SDR 通知发送 0x0121）
+- `game_progress == 5`（结算）：本地清零 `double_weakness_chance`
+- 其他阶段：不处理，信任裁判下发的 0x020E 值（机会被消耗时裁判自动减少）
+
+0x0121 数据 = `radar_autonomous_decision`（8B）：radar_cmd + password_cmd（默认 2）+ password[6]。
 
 ---
 

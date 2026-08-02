@@ -60,15 +60,19 @@ radar-egui 是比赛系统的 **HUD + 顶层进程控制**：
 alliance_radar_sdr ──ZMQ PUB :5555──┐
 laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ──直接写──▶ SharedReader 所有的
 alliance_radar_location_lidar ─────┘                         Arc<Mutex<SharedData>>
-                                                                    │
-                                                                    └─▶ UI 最新快照
+                                       │                               │
+                                       │  ┌─ tx.send(IDX_ROBOT_INTERACTION) ─▶ Serial TX
+                                       │  │   SDR: 0x0121 决策单帧(优先) + 0x0200 广播 5 帧
+                                       │  └─ tx.send(IDX_MINIMAP_RECEIVE_RADAR)─▶ Serial TX
+                                       │      Lidar: 0x0305 小地图单帧
+                                       └─▶ UI 最新快照
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──写──▶ SharedData ──▶ UI 独立读取最新快照
                                       │
-                                      ├─ tx.send(idx) ──▶ ZMQ PUB 线程 ──▶ :5557/:5558
-                                      │                    TransmitGameState /
-                                      │                    TransmitRadarMarkProcess
-                                      └─ tx.send(idx) ──▶ Serial TX (通知对应 idx 只发一帧)
+                                      └─ tx.send(idx) ──▶ ZMQ PUB 线程 ──▶ :5557/:5558
+                                                           TransmitGameState /
+                                                           TransmitRadarMarkProcess
+（0x0002/0x0101/0x0105/0x020E 只写 SharedData 不通知；0x020E 供自主决策读取）
 
 laser_guidance ──SHM /laser_frame──▶ VideoRuntime (懒) ──▶ Laser 视频
 model_to_map ──SHM /pointcloud_frame──▶ PointCloudRuntime (懒) ──▶ egui SHM/点数/帧状态
@@ -152,8 +156,9 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
 ### `serial/`
 - DJI 裁判协议：parser / package / CRC / deku 结构体
 - Serial UI 调用 `open_serial()` 后启动 `serial_start_receiver` / `serial_start_transmitter`；`RadarApp::default` 不自动打开串口
-- Parser 通过 `mpsc::Sender` 通道通知 ZMQ PUB 线程和 Serial TX 线程
-- Serial TX 阻塞等待自己的 idx receiver；ZMQ SUB 只写 `SharedData`，当前未连接到该 sender，因此不会触发 ZMQ → UART 中继
+- Parser 通过 `mpsc::Sender` 通道只通知 ZMQ PUB 线程（0x0001 GameState / 0x020C RadarMarkProcess）；其余 RX 帧（0x0002/0x0101/0x0105/0x020E）只写 SharedData，不回发 UART
+- Serial TX 阻塞等待自己的 idx receiver，由 ZMQ SUB 通知驱动（SDR → 0x0121 决策单帧优先 + 0x0200 广播 5 帧；Lidar → 0x0305 单帧）；RX 帧不回发
+- Serial 无任何 I/O timeout（无延时）；ZMQ SUB 阻塞 `recv_bytes`，`ZmqSubRuntime::stop()` 不 join（detach）
 
 ### `laser/` / `pointcloud/` / `widgets/`
 - 视频 SHM、点云 SHM、小地图、状态面板、Laser 面板
@@ -201,5 +206,5 @@ cargo clippy -- -D warnings
 ## 已知缺口（给 agent 的注意点）
 
 1. 串口是已接线的用户启动路径：Serial UI 的 `open_serial()` 启动 RX/TX；设计上不在 `RadarApp::default` 自动启动
-2. ZMQ runtime `stop` 与线程循环未完全联动
+2. ZMQ SUB 阻塞 `recv_bytes` 无接收超时，`ZmqSubRuntime::stop()` 不 join（detach，线程随进程退出）；串口 RX 线程无 timeout，close 时可能阻塞在 read（设备有数据时下一帧后退出）
 3. `AGENTS.md` 旧版 TCP:2000 描述已废弃——以本文件与 `docs/data-flow.md` 为准
