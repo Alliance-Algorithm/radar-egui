@@ -185,7 +185,7 @@ impl RadarApp {
             laser_auto: false,
             stream_on_start: true,
             record_on_start: false,
-            radar_record_on_start: false,
+            radar_record_on_start: true,
             process_command_error: None,
             laser_stage_overlay: true,
             laser_stage_demo: false,
@@ -362,10 +362,9 @@ impl RadarApp {
             );
             self.serial_worker_health = None;
             self.zmq_sub.set_tx_notify(None);
-                self.serial_open = false;
+            self.serial_open = false;
         }
     }
-
 
     fn update_pointcloud(&mut self) {
         let Some(rec) = self.rerun_viz.recording_stream() else {
