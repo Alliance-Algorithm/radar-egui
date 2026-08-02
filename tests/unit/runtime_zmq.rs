@@ -181,8 +181,7 @@ fn test_zmq_sub_sdr_populates_fields() {
 }
 
 #[test]
-fn test_zmq_sub_sdr_populates_robot_interaction() {
-    let shared = Arc::new(Mutex::new(SharedData::default()));
+fn test_zmq_sub_sdr_populates_robot_interaction() {    let shared = Arc::new(Mutex::new(SharedData::default()));
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
@@ -214,6 +213,110 @@ fn test_zmq_sub_sdr_populates_robot_interaction() {
     assert!(!sub.is_empty(), "subcontext_data not empty");
     assert_eq!(sub[0], 0x03, "msg_type at [0]");
     drop(guard);
+
+    stop.store(true, Ordering::Relaxed);
+    drop(pub_sock);
+    thread::sleep(Duration::from_millis(300));
+}
+
+#[test]
+fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
+    let shared = Arc::new(Mutex::new(SharedData::default()));
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 4;
+        guard.radar_autonomous_decision_sync.double_weakness_chance = 1;
+        guard.radar_autonomous_decision_sync.double_weakness_active = 0;
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let (pub_sock, sub_sock) = make_pair();
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
+
+    thread::sleep(Duration::from_millis(50));
+
+    let json = make_sdr_json(
+        &SdrEnemyRobotBloodData {
+            hero_blood: 100,
+            ..Default::default()
+        },
+        &SdrEnemyRobotRemainingAmmoData::default(),
+        &SdrEnemyRobotOverallStateData::default(),
+        &SdrEnemyRobotGainData::default(),
+    );
+
+    zmq_send(&pub_sock, &json).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    {
+        let guard = shared.lock().unwrap();
+        assert_eq!(
+            guard.radar_autonomous_decision_sync.double_weakness_chance,
+            2,
+            "chance incremented once"
+        );
+        assert_eq!(
+            guard.radar_autonomous_decision.radar_cmd, 1,
+            "radar_cmd incremented once"
+        );
+    }
+
+    zmq_send(&pub_sock, &json).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    {
+        let guard = shared.lock().unwrap();
+        assert_eq!(
+            guard.radar_autonomous_decision_sync.double_weakness_chance,
+            3,
+            "chance incremented twice"
+        );
+        assert_eq!(
+            guard.radar_autonomous_decision.radar_cmd, 2,
+            "radar_cmd incremented twice"
+        );
+    }
+
+    // Settlement stage (game_progress == 5) resets the local chance counter.
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 5;
+        guard.radar_autonomous_decision_sync.double_weakness_chance = 3;
+    }
+    zmq_send(&pub_sock, &json).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    {
+        let guard = shared.lock().unwrap();
+        assert_eq!(
+            guard.radar_autonomous_decision_sync.double_weakness_chance,
+            0,
+            "chance reset at game_progress == 5"
+        );
+        assert_eq!(
+            guard.radar_autonomous_decision.radar_cmd, 2,
+            "radar_cmd not incremented after reset"
+        );
+    }
+
+    // Other stages (e.g. game_progress == 1) do not touch the sync values:
+    // they trust the referee-provided sync data.
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 1;
+        guard.radar_autonomous_decision_sync.double_weakness_chance = 2;
+    }
+    zmq_send(&pub_sock, &json).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    {
+        let guard = shared.lock().unwrap();
+        assert_eq!(
+            guard.radar_autonomous_decision_sync.double_weakness_chance,
+            2,
+            "chance untouched outside stage 4/5"
+        );
+        assert_eq!(
+            guard.radar_autonomous_decision.radar_cmd, 2,
+            "radar_cmd untouched outside stage 4/5"
+        );
+    }
 
     stop.store(true, Ordering::Relaxed);
     drop(pub_sock);

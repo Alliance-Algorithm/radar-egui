@@ -4,11 +4,9 @@ use super::serialconfig::SerialConfig;
 use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::{RobotInteractionData, SharedData};
 use crate::shared_data::{
-    DART_LAUNCH_CMD_ID, GAME_RESULT_CMD_ID, GAME_STATE_CMD_ID,
-    IDX_MINIMAP_RECEIVE_RADAR, IDX_RADAR_AUTONOMOUS_DECISION_DATA,
-    MINIMAP_RECEIVE_RADAR_CMD_ID, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
-    RADAR_MARK_PROCESS_CMD_ID, ROBOT_INTERACTION_CMD_ID, SITE_EVENT_CMD_ID,
+    IDX_MINIMAP_RECEIVE_RADAR, IDX_ROBOT_INTERACTION, MINIMAP_RECEIVE_RADAR_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
+    ROBOT_INTERACTION_CMD_ID,
 };
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
@@ -137,33 +135,25 @@ pub fn serial_start_transmitter(
             if stop.load(Ordering::Relaxed) {
                 break;
             }
-            let Ok(idx) = tx_rx.recv() else { break };
+            let idx = match tx_rx.recv() {
+                Ok(idx) => idx,
+                Err(_) => break,
+            };
             let data = serial_data.lock().unwrap_or_else(|e| {
                 log::error!("SharedData mutex poisoned in serial TX");
                 e.into_inner()
             });
-            let (cmd_id, raw) = match idx {
-                0 => (GAME_STATE_CMD_ID, data.game_state.to_bytes()),
-                1 => (GAME_RESULT_CMD_ID, data.game_result.to_bytes()),
-                2 => (SITE_EVENT_CMD_ID, data.site_event.to_bytes()),
-                3 => (DART_LAUNCH_CMD_ID, data.dart_launch.to_bytes()),
-                4 => (
-                    RADAR_MARK_PROCESS_CMD_ID,
-                    data.radar_mark_process.to_bytes(),
-                ),
-                5 => (
-                    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                    data.radar_autonomous_decision_sync.to_bytes(),
-                ),
-                IDX_RADAR_AUTONOMOUS_DECISION_DATA => (
-                    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
-                    data.radar_autonomous_decision.to_bytes(),
-                ),
-                IDX_MINIMAP_RECEIVE_RADAR => (
-                    MINIMAP_RECEIVE_RADAR_CMD_ID,
-                    data.minimap_receive.to_bytes(),
-                ),
-                6 => {
+            match idx {
+                IDX_MINIMAP_RECEIVE_RADAR => {
+                    if let Ok(data_bytes) = data.minimap_receive.to_bytes() {
+                        let frame = serial_package(MINIMAP_RECEIVE_RADAR_CMD_ID, data_bytes);
+                        if let Ok(frame_bytes) = frame.to_bytes() {
+                            serial.send_data(&frame_bytes);
+                        }
+                    }
+                    continue;
+                }
+                IDX_ROBOT_INTERACTION => {
                     let mut sub_data = data.robot_interaction.subcontext_data.clone();
                     sub_data.resize(112, 0);
                     let radar_id = if data.radar_side == "blue" {
@@ -188,7 +178,28 @@ pub fn serial_start_transmitter(
                             DeviceId::RedAerial,
                         ]
                     };
+                    let decision_data = data
+                        .radar_autonomous_decision
+                        .to_bytes()
+                        .unwrap_or_default();
                     drop(data);
+                    // Radar autonomous decision first: a single 0x0301 frame to
+                    // the referee system (subcontext cmd_id = 0x0121).
+                    if !stop.load(Ordering::Relaxed) {
+                        let decision = RobotInteractionData {
+                            subcontext_cmd_id: RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+                            sender_id: radar_id,
+                            receiver_id: DeviceId::RefereeServer,
+                            subcontext_data: decision_data,
+                        };
+                        let decision_bytes = decision.to_bytes();
+                        let decision_frame =
+                            serial_package(ROBOT_INTERACTION_CMD_ID, decision_bytes);
+                        if let Ok(frame_bytes) = decision_frame.to_bytes() {
+                            serial.send_data(&frame_bytes);
+                        }
+                    }
+                    // Then the SDR data broadcast to the five allied units.
                     for &target in targets {
                         if stop.load(Ordering::Relaxed) {
                             break;
@@ -212,13 +223,6 @@ pub fn serial_start_transmitter(
                     log::warn!("Serial TX unknown idx: {}", idx);
                     drop(data);
                     continue;
-                }
-            };
-            drop(data);
-            if let Ok(data_bytes) = raw {
-                let frame = serial_package(cmd_id, data_bytes);
-                if let Ok(frame_bytes) = frame.to_bytes() {
-                    serial.send_data(&frame_bytes);
                 }
             }
         }

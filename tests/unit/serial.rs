@@ -9,8 +9,8 @@ use radar_egui::serial::serial::{serial_start_transmitter, Serial};
 use radar_egui::serial::serialconfig::SerialConfig;
 use radar_egui::shared_data::{
     MinimapReceiveRadarData, SharedData, IDX_MINIMAP_RECEIVE_RADAR,
-    IDX_RADAR_AUTONOMOUS_DECISION_DATA, MINIMAP_RECEIVE_RADAR_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, ROBOT_INTERACTION_CMD_ID,
+    MINIMAP_RECEIVE_RADAR_CMD_ID, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+    ROBOT_INTERACTION_CMD_ID,
 };
 
 fn stop_worker(tx: mpsc::Sender<usize>, handle: thread::JoinHandle<()>, stop: Arc<AtomicBool>) {
@@ -93,7 +93,7 @@ fn transmitter_sends_minimap_on_notification() {
 
 #[test]
 #[cfg(unix)]
-fn transmitter_sends_radar_autonomous_decision_on_notification() {
+fn broadcast_sends_five_interaction_frames() {
     let (input, mut output) = serial2::SerialPort::pair().expect("open test serial pair");
     output
         .set_read_timeout(Duration::from_millis(50))
@@ -102,45 +102,9 @@ fn transmitter_sends_radar_autonomous_decision_on_notification() {
     let shared = Arc::new(Mutex::new(SharedData::default()));
     {
         let mut guard = shared.lock().unwrap();
-        guard.radar_autonomous_decision.radar_cmd = 1;
+        guard.radar_autonomous_decision.radar_cmd = 3;
         guard.radar_autonomous_decision.password_cmd = 2;
-        guard.radar_autonomous_decision.password = *b"ABCDEF";
     }
-    let (tx, rx) = mpsc::channel();
-    let stop = Arc::new(AtomicBool::new(false));
-    let handle = serial_start_transmitter(
-        serial,
-        shared,
-        rx,
-        stop.clone(),
-        Arc::new(AtomicBool::new(true)),
-    );
-
-    tx.send(IDX_RADAR_AUTONOMOUS_DECISION_DATA)
-        .expect("send radar decision notification");
-
-    let frame = read_bytes(&mut output, 15, Duration::from_millis(500));
-
-    assert_eq!(frame[0], 0xA5, "SOF");
-    let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
-    assert_eq!(
-        cmd_id, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
-        "cmd_id 0x0121"
-    );
-    assert_eq!(&frame[7..15], &[1, 2, b'A', b'B', b'C', b'D', b'E', b'F']);
-
-    stop_worker(tx, handle, stop);
-}
-
-#[test]
-#[cfg(unix)]
-fn broadcast_sends_five_interaction_frames() {
-    let (input, mut output) = serial2::SerialPort::pair().expect("open test serial pair");
-    output
-        .set_read_timeout(Duration::from_millis(50))
-        .expect("set test read timeout");
-    let serial = Serial::from_port(input);
-    let shared = Arc::new(Mutex::new(SharedData::default()));
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
     let handle = serial_start_transmitter(
@@ -154,14 +118,44 @@ fn broadcast_sends_five_interaction_frames() {
     tx.send(radar_egui::shared_data::IDX_ROBOT_INTERACTION)
         .expect("send robot interaction notification");
 
-    let bytes = read_bytes(&mut output, 5 * 127, Duration::from_millis(1000));
+    // The decision frame (0x0121 subcmd, 14-byte data, receiver =
+    // RefereeServer) is sent first, then the 5 broadcast frames (0x0200
+    // subcmd, 118-byte data).
+    let decision_len = 5 + 2 + 14 + 2;
+    let bytes = read_bytes(
+        &mut output,
+        5 * 127 + decision_len,
+        Duration::from_millis(1000),
+    );
 
-    assert_eq!(bytes.len(), 5 * 127, "five full 0x0301 frames");
+    assert_eq!(
+        bytes.len(),
+        5 * 127 + decision_len,
+        "one decision + five broadcast frames"
+    );
+    let decision = &bytes[0..decision_len];
+    assert_eq!(decision[0], 0xA5, "decision SOF");
+    let cmd_id = u16::from_le_bytes([decision[5], decision[6]]);
+    assert_eq!(cmd_id, ROBOT_INTERACTION_CMD_ID, "decision cmd_id 0x0301");
+    let subcmd = u16::from_le_bytes([decision[7], decision[8]]);
+    assert_eq!(
+        subcmd,
+        RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+        "decision subcmd 0x0121",
+    );
+    let sender = u16::from_le_bytes([decision[9], decision[10]]);
+    assert_eq!(sender, 9, "sender = RedRadar");
+    let receiver = u16::from_le_bytes([decision[11], decision[12]]);
+    assert_eq!(receiver, 0x8080, "receiver = RefereeServer");
+    assert_eq!(decision[13], 3, "radar_cmd");
+    assert_eq!(decision[14], 2, "password_cmd");
     for i in 0..5 {
-        let frame = &bytes[i * 127..(i + 1) * 127];
+        let frame = &bytes[decision_len + i * 127..decision_len + (i + 1) * 127];
         assert_eq!(frame[0], 0xA5, "frame {} SOF", i);
         let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
         assert_eq!(cmd_id, ROBOT_INTERACTION_CMD_ID, "frame {} cmd_id 0x0301", i);
+        let subcmd = u16::from_le_bytes([frame[7], frame[8]]);
+        assert_eq!(subcmd, 0x0200, "frame {} subcmd 0x0200", i);
     }
 
     stop_worker(tx, handle, stop);

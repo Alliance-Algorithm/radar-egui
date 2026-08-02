@@ -11,8 +11,7 @@ use crate::shared_data::{
     RobotInteractionData, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
     SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
     SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE,
-    IDX_MINIMAP_RECEIVE_RADAR, IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
-    IDX_ROBOT_INTERACTION, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+    IDX_MINIMAP_RECEIVE_RADAR, IDX_RADAR_MARK_PROCESS, IDX_ROBOT_INTERACTION,
     RADAR_INTERACTION_SUBCONTEXT_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
 };
 
@@ -141,17 +140,6 @@ pub fn zmq_start_pub(
                     log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
                     Some(msg.to_string())
                 }
-                IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
-                    let msg = serde_json::json!({
-                        "cmd_id": RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
-                        "double_weakness_chance": lock.radar_autonomous_decision_sync.double_weakness_chance,
-                        "double_weakness_active": lock.radar_autonomous_decision_sync.double_weakness_active,
-                        "encryption_rank": lock.radar_autonomous_decision_sync.encryption_rank,
-                        "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
-                    });
-                    log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
-                    Some(msg.to_string())
-                }
                 _ => {
                     log::warn!("ZMQ PUB unknown idx: {}", idx);
                     None
@@ -212,6 +200,21 @@ pub fn zmq_start_sub(
                     receiver_id: DeviceId::Unknown,
                     subcontext_data: sub_data,
                 };
+                // Radar autonomous decision: evaluate on each SDR write.
+                let game_progress = guard.game_state.game_progress;
+                let sync = &mut guard.radar_autonomous_decision_sync;
+                if game_progress == 5 {
+                    // Settlement stage: reset the local chance counter.
+                    sync.double_weakness_chance = 0;
+                } else if game_progress == 4 {
+                    if sync.double_weakness_chance > 0 {
+                        sync.double_weakness_chance = sync.double_weakness_chance.wrapping_add(1);
+                    }
+                    if sync.double_weakness_chance > 0 && sync.double_weakness_active == 0 {
+                        guard.radar_autonomous_decision.radar_cmd =
+                            guard.radar_autonomous_decision.radar_cmd.wrapping_add(1);
+                    }
+                }
             }
             notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
             continue;
