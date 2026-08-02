@@ -9,12 +9,16 @@ impl RadarApp {
         let snapshot = self.process_control.snapshot();
 
         white_card(ui, "脚本控制", |ui| {
-            let running = snapshot.laser.managed;
+            let running = snapshot.laser.managed || snapshot.daemon_available;
             let active_label = snapshot
                 .laser
                 .active_laser
                 .map(|script| script.label())
-                .unwrap_or("Idle");
+                .unwrap_or(if snapshot.daemon_available {
+                    "daemon"
+                } else {
+                    "Idle"
+                });
 
             ui.horizontal(|ui| {
                 ui.label(
@@ -24,7 +28,7 @@ impl RadarApp {
                 );
                 status_chip(ui, running, active_label);
             });
-            if snapshot.daemon_available && !running {
+            if snapshot.daemon_available && snapshot.laser.active_laser.is_none() {
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new("daemon 存活 (可通过流控制发送命令)")
