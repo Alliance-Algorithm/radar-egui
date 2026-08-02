@@ -371,6 +371,7 @@ pub const IDX_RADAR_MARK_PROCESS: usize = 4;
 pub const IDX_RADAR_AUTONOMOUS_DECISION_SYNC: usize = 5;
 pub const IDX_ROBOT_INTERACTION: usize = 6;
 pub const IDX_RADAR_AUTONOMOUS_DECISION_DATA: usize = 7;
+pub const IDX_MINIMAP_RECEIVE_RADAR: usize = 8;
 
 // ─── Shared runtime state ───
 

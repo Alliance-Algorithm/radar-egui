@@ -87,7 +87,7 @@ fn test_zmq_sub_sdr_populates_fields() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone());
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
 
     thread::sleep(Duration::from_millis(50)); // let sub handshake
 
@@ -186,7 +186,7 @@ fn test_zmq_sub_sdr_populates_robot_interaction() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone());
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
 
     thread::sleep(Duration::from_millis(50));
 
@@ -228,7 +228,7 @@ fn test_zmq_sub_lidar_populates_positions() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone());
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
 
     thread::sleep(Duration::from_millis(50));
 
@@ -354,7 +354,7 @@ fn test_zmq_sub_sdr_updates_position() {
     let stop = Arc::new(AtomicBool::new(false));
 
     let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone());
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), Arc::new(Mutex::new(None)));
 
     thread::sleep(Duration::from_millis(50));
 

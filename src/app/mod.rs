@@ -301,7 +301,8 @@ impl RadarApp {
                     self.serial_tx_handle = Some(tx);
                     self.serial_stop = Some(stop);
                     self.serial_worker_health = Some(worker_health);
-                    self.serial_tx_notify = Some(tx_tx);
+                    self.serial_tx_notify = Some(tx_tx.clone());
+                    self.zmq_sub.set_tx_notify(Some(tx_tx));
                     self.auto_double_weakness_sent_chance = 0;
                     self.serial_open = true;
                     self.serial_error = None;
@@ -335,6 +336,7 @@ impl RadarApp {
         );
         self.serial_worker_health = None;
         self.serial_tx_notify = None;
+        self.zmq_sub.set_tx_notify(None);
         self.auto_double_weakness_sent_chance = 0;
         self.serial_open = false;
         self.serial_error = None;
@@ -364,6 +366,7 @@ impl RadarApp {
             );
             self.serial_worker_health = None;
             self.serial_tx_notify = None;
+            self.zmq_sub.set_tx_notify(None);
             self.auto_double_weakness_sent_chance = 0;
             self.serial_open = false;
         }

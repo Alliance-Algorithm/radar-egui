@@ -11,9 +11,9 @@ use crate::shared_data::{
     RobotInteractionData, SdrEnemyRobotBloodData, SdrEnemyRobotGainData,
     SdrEnemyRobotOverallStateData, SdrEnemyRobotPositionData, SdrEnemyRobotRemainingAmmoData,
     SdrJammingKeyData, SharedData, GAME_STATE_CMD_ID, IDX_GAME_STATE,
-    IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
-    RADAR_MARK_PROCESS_CMD_ID,
+    IDX_MINIMAP_RECEIVE_RADAR, IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
+    IDX_ROBOT_INTERACTION, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+    RADAR_INTERACTION_SUBCONTEXT_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
 };
 
 // ── Private ZMQ message types (JSON deserialization only) ──
@@ -85,7 +85,6 @@ pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<z
         sub_socket.connect(addr)?;
     }
     sub_socket.set_subscribe(b"")?;
-    sub_socket.set_rcvtimeo(50)?;
     Ok(sub_socket)
 }
 
@@ -173,6 +172,7 @@ pub fn zmq_start_sub(
     sub_socket: zmq2::Socket,
     shared: Arc<Mutex<SharedData>>,
     stop: Arc<AtomicBool>,
+    tx_slot: Arc<Mutex<Option<mpsc::Sender<usize>>>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || loop {
         if stop.load(Ordering::Relaxed) {
@@ -213,6 +213,7 @@ pub fn zmq_start_sub(
                     subcontext_data: sub_data,
                 };
             }
+            notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
             continue;
         }
         // Laser
@@ -249,8 +250,41 @@ pub fn zmq_start_sub(
                 guard.ally_aerial.y = msg.ally_aerial_y as i16;
                 guard.ally_sentry.x = msg.ally_sentry_x as i16;
                 guard.ally_sentry.y = msg.ally_sentry_y as i16;
+                guard.minimap_receive.opponent_hero_x = msg.opponent_hero_x;
+                guard.minimap_receive.opponent_hero_y = msg.opponent_hero_y;
+                guard.minimap_receive.opponent_engineer_x = msg.opponent_engineer_x;
+                guard.minimap_receive.opponent_engineer_y = msg.opponent_engineer_y;
+                guard.minimap_receive.opponent_infantry_3_x = msg.opponent_infantry_3_x;
+                guard.minimap_receive.opponent_infantry_3_y = msg.opponent_infantry_3_y;
+                guard.minimap_receive.opponent_infantry_4_x = msg.opponent_infantry_4_x;
+                guard.minimap_receive.opponent_infantry_4_y = msg.opponent_infantry_4_y;
+                guard.minimap_receive.opponent_aerial_x = msg.opponent_aerial_x;
+                guard.minimap_receive.opponent_aerial_y = msg.opponent_aerial_y;
+                guard.minimap_receive.opponent_sentry_x = msg.opponent_sentry_x;
+                guard.minimap_receive.opponent_sentry_y = msg.opponent_sentry_y;
+                guard.minimap_receive.ally_hero_x = msg.ally_hero_x;
+                guard.minimap_receive.ally_hero_y = msg.ally_hero_y;
+                guard.minimap_receive.ally_engineer_x = msg.ally_engineer_x;
+                guard.minimap_receive.ally_engineer_y = msg.ally_engineer_y;
+                guard.minimap_receive.ally_infantry_3_x = msg.ally_infantry_3_x;
+                guard.minimap_receive.ally_infantry_3_y = msg.ally_infantry_3_y;
+                guard.minimap_receive.ally_infantry_4_x = msg.ally_infantry_4_x;
+                guard.minimap_receive.ally_infantry_4_y = msg.ally_infantry_4_y;
+                guard.minimap_receive.ally_aerial_x = msg.ally_aerial_x;
+                guard.minimap_receive.ally_aerial_y = msg.ally_aerial_y;
+                guard.minimap_receive.ally_sentry_x = msg.ally_sentry_x;
+                guard.minimap_receive.ally_sentry_y = msg.ally_sentry_y;
             }
+            notify_tx(&tx_slot, IDX_MINIMAP_RECEIVE_RADAR);
             continue;
         }
     })
+}
+
+fn notify_tx(tx_slot: &Mutex<Option<mpsc::Sender<usize>>>, idx: usize) {
+    if let Ok(slot) = tx_slot.lock() {
+        if let Some(tx) = slot.as_ref() {
+            tx.send(idx).ok();
+        }
+    }
 }
