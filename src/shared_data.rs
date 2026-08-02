@@ -208,12 +208,22 @@ impl RobotInteractionData {
 }
 
 // sub-content cmd_id = 0x0121
-#[derive(Debug, Clone, Default, DekuRead, DekuWrite, Serialize, Deserialize)]
+#[derive(Debug, Clone, DekuRead, DekuWrite, Serialize, Deserialize)]
 #[deku(endian = "little")]
 pub struct RadarAutonomousDecisionData {
     pub radar_cmd: u8,
     pub password_cmd: u8,
     pub password: [u8; 6],
+}
+
+impl Default for RadarAutonomousDecisionData {
+    fn default() -> Self {
+        Self {
+            radar_cmd: 0,
+            password_cmd: 2,
+            password: [0; 6],
+        }
+    }
 }
 
 // cmd_id = 0x0305
@@ -364,13 +374,9 @@ pub struct SdrJammingKeyData {
 // ─── Channel notification indices ───
 
 pub const IDX_GAME_STATE: usize = 0;
-pub const IDX_GAME_RESULT: usize = 1;
-pub const IDX_SITE_EVENT: usize = 2;
-pub const IDX_DART_LAUNCH: usize = 3;
-pub const IDX_RADAR_MARK_PROCESS: usize = 4;
-pub const IDX_RADAR_AUTONOMOUS_DECISION_SYNC: usize = 5;
-pub const IDX_ROBOT_INTERACTION: usize = 6;
-pub const IDX_RADAR_AUTONOMOUS_DECISION_DATA: usize = 7;
+pub const IDX_RADAR_MARK_PROCESS: usize = 1;
+pub const IDX_ROBOT_INTERACTION: usize = 2;
+pub const IDX_MINIMAP_RECEIVE_RADAR: usize = 3;
 
 // ─── Shared runtime state ───
 

@@ -1,0 +1,71 @@
+<h2>Laser 面板如何承载全局启动控制？</h2>
+<p class="subtitle">选择一个布局方向。三种方案都保留 Competition / Preview / Stream / Record，且 Auto 仅属于 Laser。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#111827;color:#e5e7eb;min-height:330px">
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">外部进程</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#1f2937;border:1px solid #475569;border-radius:10px;padding:10px 12px">
+        <b>我方阵营</b><span style="background:#b91c1c;padding:5px 13px;border-radius:7px">红方</span><span style="opacity:.45">蓝方</span>
+      </div>
+      <div style="margin-top:14px;background:#1f2937;border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><b>全系统</b><span style="color:#94a3b8">Radar → SDR → Laser</span></div>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="mock-button" style="flex:2;background:#2563eb">Start All</button><button class="mock-button" style="flex:1;background:#7f1d1d">Stop All</button></div>
+      </div>
+      <div style="margin-top:14px;background:#1f2937;border-radius:10px;padding:12px">
+        <b>Laser 模式</b>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px"><button class="mock-button">Competition</button><button class="mock-button">Preview</button><button class="mock-button">Stream</button><button class="mock-button">Record</button></div>
+        <div style="display:flex;gap:8px;margin-top:8px"><button class="mock-button" style="flex:1;background:#0f766e">Auto</button><button class="mock-button" style="flex:1">Stop Laser</button></div>
+      </div>
+      <div style="margin-top:14px;background:#1f2937;border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><span>ROS2 Radar</span><button class="mock-button">Start</button></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px"><span>SDR</span><button class="mock-button">Start</button></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A. 分层控制（推荐）</h3><p>阵营和 Start All 优先；Laser 模式集中；Radar/SDR 单项控制放最后。职责最清晰。</p></div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#111827;color:#e5e7eb;min-height:330px">
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">比赛控制台</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:#1f2937;border-radius:10px;padding:12px"><b>我方阵营</b><div style="margin-top:12px"><span style="background:#b91c1c;padding:6px 14px;border-radius:7px">红</span>　<span style="opacity:.4">蓝</span></div></div>
+        <div style="background:#1f2937;border-radius:10px;padding:12px"><b>全系统</b><button class="mock-button" style="width:100%;margin-top:8px;background:#2563eb">Start All</button></div>
+        <div style="background:#1f2937;border-radius:10px;padding:12px"><b>ROS2 Radar</b><div style="margin-top:8px"><button class="mock-button">Start</button> <button class="mock-button">Stop</button></div></div>
+        <div style="background:#1f2937;border-radius:10px;padding:12px"><b>SDR</b><div style="margin-top:8px"><button class="mock-button">Start</button> <button class="mock-button">Stop</button></div></div>
+      </div>
+      <div style="margin-top:10px;background:#1f2937;border-radius:10px;padding:12px">
+        <b>Laser</b>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px"><button class="mock-button">Competition</button><button class="mock-button">Preview</button><button class="mock-button">Stream</button><button class="mock-button">Record</button><button class="mock-button" style="background:#0f766e">Auto</button><button class="mock-button">Stop</button></div>
+      </div>
+      <div style="margin-top:10px;background:#1f2937;border-radius:10px;padding:10px;color:#fbbf24">启动步骤 1/3 · ROS2 Radar starting…</div>
+    </div>
+    <div class="card-body"><h3>B. 组件矩阵</h3><p>所有进程地位平行，信息密度高；Laser 模式较拥挤，侧栏较窄时容易换行。</p></div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#111827;color:#e5e7eb;min-height:330px">
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">Laser</div>
+      <div style="background:#1f2937;border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><b>我方阵营：红方</b><span style="color:#94a3b8">敌方：蓝方</span></div>
+        <button class="mock-button" style="width:100%;margin-top:12px;background:#2563eb">启动比赛系统</button>
+      </div>
+      <div style="margin-top:12px;background:#1f2937;border-radius:10px;padding:12px">
+        <b>常用 Laser 操作</b>
+        <button class="mock-button" style="display:block;width:100%;margin-top:9px">Competition</button>
+        <button class="mock-button" style="display:block;width:100%;margin-top:7px;background:#0f766e">Auto</button>
+      </div>
+      <details style="margin-top:12px;background:#1f2937;border-radius:10px;padding:12px">
+        <summary>高级控制</summary>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px"><button class="mock-button">Preview</button><button class="mock-button">Stream</button><button class="mock-button">Record</button><button class="mock-button">Stop Laser</button><button class="mock-button">Radar Start</button><button class="mock-button">SDR Start</button></div>
+      </details>
+      <div style="margin-top:12px;background:#1f2937;border-radius:10px;padding:10px"><span style="color:#22c55e">● Radar</span>　<span style="color:#eab308">● SDR</span>　<span style="color:#64748b">● Laser</span></div>
+    </div>
+    <div class="card-body"><h3>C. 渐进披露</h3><p>日常操作最简洁，高级按钮折叠；但比赛现场排障时多一次展开操作。</p></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:22px">
+  <h3>建议新增但保持克制</h3>
+  <p><b>Start All / Stop All</b>、每组件独立 Start/Stop、<b>Retry Failed</b>、启动步骤与最后错误、Laser 独有 <b>Auto</b>。不新增虚假的连接/健康按钮。</p>
+</div>

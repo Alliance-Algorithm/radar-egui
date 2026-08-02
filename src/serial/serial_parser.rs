@@ -1,14 +1,12 @@
 use super::serial_crc;
-use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::SharedData;
 use crate::shared_data::{
     DartLaunchData, GameResultData, GameStateData, RadarAutonomousDecisionSyncData,
-    RadarMarkProcessData, RobotInteractionData, SerialFrameHeader, SiteEventData, CMD_ID_LENGTH,
+    RadarMarkProcessData, SerialFrameHeader, SiteEventData, CMD_ID_LENGTH,
     CRC16_LENGTH, DART_LAUNCH_CMD_ID, FRAME_HEADER_LENGTH, FRAME_HEADER_SOF, GAME_RESULT_CMD_ID,
-    GAME_STATE_CMD_ID, IDX_DART_LAUNCH, IDX_GAME_RESULT, IDX_GAME_STATE,
-    IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS, IDX_ROBOT_INTERACTION,
-    IDX_SITE_EVENT, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
-    ROBOT_INTERACTION_CMD_ID, SITE_EVENT_CMD_ID,
+    GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
+    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
+    SITE_EVENT_CMD_ID,
 };
 use deku::prelude::*;
 use std::sync::mpsc;
@@ -105,9 +103,6 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.game_result = v;
-                        for t in &self.tx {
-                            t.send(IDX_GAME_RESULT).ok();
-                        }
                         parsed_any = true;
                     }
                 }
@@ -119,9 +114,6 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.site_event = v;
-                        for t in &self.tx {
-                            t.send(IDX_SITE_EVENT).ok();
-                        }
                         parsed_any = true;
                     }
                 }
@@ -133,9 +125,6 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.dart_launch = v;
-                        for t in &self.tx {
-                            t.send(IDX_DART_LAUNCH).ok();
-                        }
                         parsed_any = true;
                     }
                 }
@@ -161,9 +150,6 @@ impl SerialParser {
                             e.into_inner()
                         });
                         lock.radar_autonomous_decision_sync = v;
-                        for t in &self.tx {
-                            t.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
-                        }
                         parsed_any = true;
                     }
                 }

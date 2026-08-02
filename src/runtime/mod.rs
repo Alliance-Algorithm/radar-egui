@@ -26,26 +26,38 @@ where
 pub struct ZmqSubRuntime {
     stop: Arc<AtomicBool>,
     handle: Mutex<Option<JoinHandle<()>>>,
+    tx_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<usize>>>>,
 }
 
 impl ZmqSubRuntime {
     pub fn start(addrs: &[String], shared: Arc<Mutex<SharedData>>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let tx_slot = Arc::new(Mutex::new(None));
         let addrs = addrs.to_vec();
         let sub_socket = crate::zmq::zmq::zmq_init_sub(1, &addrs).expect("ZMQ SUB init failed");
-        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared, stop.clone());
+        let handle = crate::zmq::zmq::zmq_start_sub(sub_socket, shared, stop.clone(), tx_slot.clone());
         Self {
             stop,
             handle: Mutex::new(Some(handle)),
+            tx_slot,
+        }
+    }
+
+    /// Attach (or detach with `None`) the serial TX notification channel.
+    /// The ZMQ SUB thread notifies the serial transmitter on SDR / Lidar messages.
+    pub fn set_tx_notify(&self, tx: Option<std::sync::mpsc::Sender<usize>>) {
+        if let Ok(mut slot) = self.tx_slot.lock() {
+            *slot = tx;
         }
     }
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        // The SUB thread blocks on recv_bytes and cannot be interrupted without
+        // a receive timeout; detach it instead of joining (thread exits at
+        // process teardown).
         if let Ok(mut h) = self.handle.lock() {
-            if let Some(handle) = h.take() {
-                let _ = handle.join();
-            }
+            h.take();
         }
     }
 
