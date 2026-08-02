@@ -28,7 +28,7 @@ impl RadarApp {
                 );
                 status_chip(ui, running, active_label);
             });
-            if snapshot.daemon_available && !running {
+            if snapshot.daemon_available && snapshot.laser.active_laser.is_none() {
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new("daemon 存活 (可通过流控制发送命令)")
