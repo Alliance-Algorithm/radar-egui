@@ -125,32 +125,28 @@ impl ScriptRunner {
         let repo = resolve_radar_root().map_err(|error| {
             contextual_error(error, "Radar", "resolve workspace", &radar_root_candidate())
         })?;
-        let container = radar_container();
-        let inner = format!(
-            "pkill -f \"[h]ikcamera_ros_driver\"; \
-             pkill -f \"[h]ost_sdk_sample\"; \
-             pkill -f \"[r]adar_bridge_node\"; \
-             pkill -f \"[r]adar_lidar_node\"; \
-             pkill -f \"[r]adar_camera_node\"; \
-             pkill -f \"[r]adar_fusion_node\"; \
-             sleep 1; \
-             source /opt/ros/jazzy/setup.bash && \
-             source /workspace/ros_ws/install/setup.bash && \
-             exec ros2 launch radar_bringup competition.launch.py side:={side} enable_raw_recording:={record}"
-        );
-
+        let script = repo.join(".script").join("start-competition");
         let stderr = stderr_log(RADAR_STDERR_LOG, "Radar")?;
-        let child = Command::new("docker")
-            .args(["exec", container, "bash", "-lc", &inner])
+        // side 必传；map/sensor 传空串走脚本默认；record 透传第 4 参数
+        let child = Command::new("bash")
+            .args([
+                script.as_os_str(),
+                std::ffi::OsStr::new(side),
+                std::ffi::OsStr::new(""),
+                std::ffi::OsStr::new(""),
+                std::ffi::OsStr::new(&record.to_string()),
+            ])
             .current_dir(&repo)
             .stdout(Stdio::null())
             .stderr(stderr)
             .stdin(Stdio::null())
             .spawn()
-            .map_err(|error| contextual_error(error, "Radar", "spawn docker exec launch", &repo))?;
+            .map_err(|error| {
+                contextual_error(error, "Radar", "spawn start-competition", &script)
+            })?;
 
         log::info!(
-            "Started Radar in container {container} (side={side}, enable_raw_recording={record}, pid={})",
+            "Started Radar via start-competition (side={side}, enable_raw_recording={record}, pid={})",
             child.id()
         );
         self.radar_child = Some(child);
