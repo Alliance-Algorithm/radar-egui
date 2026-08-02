@@ -2,11 +2,10 @@ use super::serial_crc;
 use crate::shared_data::SharedData;
 use crate::shared_data::{
     DartLaunchData, GameResultData, GameStateData, RadarAutonomousDecisionSyncData,
-    RadarMarkProcessData, SerialFrameHeader, SiteEventData, CMD_ID_LENGTH,
-    CRC16_LENGTH, DART_LAUNCH_CMD_ID, FRAME_HEADER_LENGTH, FRAME_HEADER_SOF, GAME_RESULT_CMD_ID,
+    RadarMarkProcessData, SerialFrameHeader, SiteEventData, CMD_ID_LENGTH, CRC16_LENGTH,
+    DART_LAUNCH_CMD_ID, FRAME_HEADER_LENGTH, FRAME_HEADER_SOF, GAME_RESULT_CMD_ID,
     GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_MARK_PROCESS,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
-    SITE_EVENT_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, SITE_EVENT_CMD_ID,
 };
 use deku::prelude::*;
 use std::sync::mpsc;
