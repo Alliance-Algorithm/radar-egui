@@ -1,5 +1,5 @@
 fn main() -> eframe::Result {
-    env_logger::init();
+    radar_egui::logging::init(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
