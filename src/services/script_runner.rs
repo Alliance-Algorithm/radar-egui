@@ -349,7 +349,7 @@ fn radar_root_candidate() -> PathBuf {
 }
 
 /// ROS2 Radar 运行容器名：`RADAR_CONTAINER` 环境变量覆盖，默认开发容器。
-fn radar_container() -> &'static str {
+pub(crate) fn radar_container() -> &'static str {
     static CONTAINER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CONTAINER.get_or_init(|| match std::env::var(RADAR_CONTAINER_ENV) {
         Ok(name) if !name.trim().is_empty() => name.trim().to_owned(),

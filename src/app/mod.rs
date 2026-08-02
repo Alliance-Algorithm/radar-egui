@@ -103,6 +103,8 @@ pub struct RadarApp {
     serial_worker_health: Option<Arc<AtomicBool>>,
     serial_tx_notify: Option<std::sync::mpsc::Sender<usize>>,
     auto_double_weakness_sent_chance: u8,
+    radar_node_check: Option<(std::time::Instant, Vec<(String, bool)>)>,
+    radar_log_tail: Option<(std::time::Instant, String)>,
 }
 
 #[derive(PartialEq)]
@@ -201,6 +203,8 @@ impl RadarApp {
             serial_worker_health: None,
             serial_tx_notify: None,
             auto_double_weakness_sent_chance: 0,
+            radar_node_check: None,
+            radar_log_tail: None,
         }
     }
 }
