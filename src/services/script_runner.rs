@@ -170,7 +170,8 @@ impl ScriptRunner {
         let _ = Command::new("docker")
             .args(["exec", container, "bash", "-lc", inner])
             .output();
-        log::info!("Stopped Radar in container {container}");
+        kill_host_radar_processes();
+        log::info!("Stopped Radar in container {container} and on host");
     }
 
     pub fn is_radar_running(&self) -> bool {
@@ -282,8 +283,12 @@ impl ScriptRunner {
         if let Some(mut child) = self.sdr_child.take() {
             let _ = child.kill();
             let _ = child.wait();
-            log::info!("Stopped SDR bridge");
         }
+        // 清理手动启动的 SDR 进程（egui 命令行不含 thread_init.py，不会自杀）
+        let _ = Command::new("pkill")
+            .args(["-f", "thread_init.py"])
+            .output();
+        log::info!("Stopped SDR bridge");
     }
 
     pub fn is_sdr_running(&self) -> bool {
@@ -355,6 +360,21 @@ pub(crate) fn radar_container() -> &'static str {
         Ok(name) if !name.trim().is_empty() => name.trim().to_owned(),
         _ => RADAR_CONTAINER_DEFAULT.to_owned(),
     })
+}
+
+/// 清理宿主机上手动启动的雷达进程（egui 进程命令行不含这些关键字，不会自杀）。
+fn kill_host_radar_processes() {
+    for pattern in [
+        "competition.launch.py",
+        "hikcamera_ros_driver",
+        "host_sdk_sample",
+        "radar_bridge_node",
+        "radar_lidar_node",
+        "radar_camera_node",
+        "radar_fusion_node",
+    ] {
+        let _ = Command::new("pkill").args(["-f", pattern]).output();
+    }
 }
 
 pub fn resolve_laser_root() -> io::Result<PathBuf> {
