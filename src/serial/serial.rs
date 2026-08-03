@@ -152,6 +152,10 @@ pub fn serial_start_transmitter(
                         let frame = serial_package(MINIMAP_RECEIVE_RADAR_CMD_ID, data_bytes);
                         if let Ok(frame_bytes) = frame.to_bytes() {
                             serial.send_data(&frame_bytes);
+                            log::info!(
+                                "Serial TX 0x0305 minimap sent ({} bytes)",
+                                frame_bytes.len()
+                            );
                         }
                     }
                     continue;
@@ -185,6 +189,8 @@ pub fn serial_start_transmitter(
                         .radar_autonomous_decision
                         .to_bytes()
                         .unwrap_or_default();
+                    let decision_radar_cmd = data.radar_autonomous_decision.radar_cmd;
+                    let decision_password_cmd = data.radar_autonomous_decision.password_cmd;
                     drop(data);
                     // Radar autonomous decision first: a single 0x0301 frame to
                     // the referee system (subcontext cmd_id = 0x0121).
@@ -200,9 +206,16 @@ pub fn serial_start_transmitter(
                             serial_package(ROBOT_INTERACTION_CMD_ID, decision_bytes);
                         if let Ok(frame_bytes) = decision_frame.to_bytes() {
                             serial.send_data(&frame_bytes);
+                            log::info!(
+                                "Serial TX 0x0121 radar decision sent: radar_cmd={} password_cmd={} ({} bytes)",
+                                decision_radar_cmd,
+                                decision_password_cmd,
+                                frame_bytes.len()
+                            );
                         }
                     }
                     // Then the SDR data broadcast to the five allied units.
+                    let mut broadcast_frames = 0;
                     for &target in targets {
                         if stop.load(Ordering::Relaxed) {
                             break;
@@ -217,9 +230,15 @@ pub fn serial_start_transmitter(
                         let frame = serial_package(ROBOT_INTERACTION_CMD_ID, data_bytes);
                         if let Ok(frame_bytes) = frame.to_bytes() {
                             serial.send_data(&frame_bytes);
+                            broadcast_frames += 1;
                         }
                         thread::sleep(Duration::from_millis(50));
                     }
+                    log::info!(
+                        "Serial TX 0x0200 SDR broadcast sent: {} frames to {} targets",
+                        broadcast_frames,
+                        targets.len()
+                    );
                     continue;
                 }
                 _ => {

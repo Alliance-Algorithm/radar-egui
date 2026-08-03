@@ -52,6 +52,11 @@ impl SerialParser {
                 break;
             }
             if !serial_crc::verify_crc8(&read_buffer[index..header_end]) {
+                log::info!(
+                    "Serial RX: crc8 mismatch at offset {} ({} bytes), skipping",
+                    index,
+                    header_end - index
+                );
                 index += 1;
                 continue;
             }
@@ -68,6 +73,11 @@ impl SerialParser {
                 break;
             }
             if !serial_crc::verify_crc16(&read_buffer[package_start..package_end]) {
+                log::info!(
+                    "Serial RX: crc16 mismatch, cmd_id=0x{:04X} data_len={} (dropping frame)",
+                    u16::from_le_bytes([read_buffer[index + 5], read_buffer[index + 6]]),
+                    data_len
+                );
                 index += FRAME_HEADER_LENGTH
                     + CMD_ID_LENGTH
                     + self.frame_header.data_len as usize
@@ -92,6 +102,8 @@ impl SerialParser {
                             t.send(IDX_GAME_STATE).ok();
                         }
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode GameState (0x0001)");
                     }
                 }
                 GAME_RESULT_CMD_ID => {
@@ -103,6 +115,8 @@ impl SerialParser {
                         });
                         lock.game_result = v;
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode GameResult (0x0002)");
                     }
                 }
                 SITE_EVENT_CMD_ID => {
@@ -114,6 +128,8 @@ impl SerialParser {
                         });
                         lock.site_event = v;
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode SiteEvent (0x0101)");
                     }
                 }
                 DART_LAUNCH_CMD_ID => {
@@ -125,6 +141,8 @@ impl SerialParser {
                         });
                         lock.dart_launch = v;
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode DartLaunch (0x0105)");
                     }
                 }
                 RADAR_MARK_PROCESS_CMD_ID => {
@@ -139,6 +157,8 @@ impl SerialParser {
                             t.send(IDX_RADAR_MARK_PROCESS).ok();
                         }
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode RadarMarkProcess (0x020C)");
                     }
                 }
                 RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID => {
@@ -153,9 +173,13 @@ impl SerialParser {
                             t.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
                         }
                         parsed_any = true;
+                    } else {
+                        log::warn!("Serial RX: failed to decode RadarAutonomousDecisionSync (0x020E)");
                     }
                 }
-                _ => {}
+                _ => {
+                    log::warn!("Serial RX: unknown cmd_id 0x{:04X}", cmd_id);
+                }
             }
             index = package_end;
         }
