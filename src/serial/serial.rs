@@ -218,7 +218,7 @@ pub fn serial_start_transmitter(
                         if let Ok(frame_bytes) = frame.to_bytes() {
                             serial.send_data(&frame_bytes);
                         }
-                        thread::sleep(Duration::from_millis(5));
+                        thread::sleep(Duration::from_millis(50));
                     }
                     continue;
                 }
