@@ -486,7 +486,7 @@ async fn run_process_actor<B: ProcessBackend>(
                 snapshot.sdr = ComponentSnapshot::default();
                 publish(&snapshot_tx, &snapshot);
                 finish_component(
-                    backend.start_sdr(side.enemy()),
+                    backend.start_sdr(side),
                     ProcessComponent::Sdr,
                     &mut snapshot,
                     &snapshot_tx,
@@ -774,7 +774,7 @@ fn advance_sequence<B: ProcessBackend>(
             }
             snapshot.sdr = ComponentSnapshot::default();
             publish(snapshot_tx, snapshot);
-            match backend.start_sdr(current.command.side.enemy()) {
+            match backend.start_sdr(current.command.side) {
                 Ok(()) => {
                     snapshot.sdr.managed = true;
                     snapshot.phase = ProcessPhase::WaitingForSdr;
@@ -1136,7 +1136,7 @@ mod tests {
             events.lock().unwrap().as_slice(),
             [
                 "radar:red,record off",
-                "sdr:blue",
+                "sdr:red",
                 "laser:Competition",
                 "fifo:enemy blue,stream on,record off",
             ]
@@ -1295,13 +1295,13 @@ mod tests {
         wait_for_failed(&runtime, ProcessComponent::Sdr, Duration::from_secs(1)).await;
         assert_eq!(
             events.lock().unwrap().as_slice(),
-            ["radar:red,record off", "sdr:blue"]
+            ["radar:red,record off", "sdr:red"]
         );
 
         runtime.send(ProcessCommand::RetryFailed).unwrap();
         wait_for_phase(&runtime, ProcessPhase::Running, Duration::from_secs(1)).await;
         assert!(events.lock().unwrap().ends_with(&[
-            "sdr:blue".into(),
+            "sdr:red".into(),
             "laser:Competition".into(),
             "fifo:enemy blue,stream on,record off".into(),
         ]));

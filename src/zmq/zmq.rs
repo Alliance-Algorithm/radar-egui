@@ -73,6 +73,8 @@ pub fn zmq_init_pub(thread_num: i32, bind_addr: &str) -> zmq2::Result<zmq2::Sock
     let context = zmq2::Context::new();
     context.set_io_threads(thread_num)?;
     let pub_socket = context.socket(zmq2::PUB)?;
+    // linger 0：进程退出时立即释放端口，避免孤儿 socket 占用（与 radar_bridge 一致）
+    pub_socket.set_linger(0)?;
     pub_socket.bind(bind_addr)?;
     Ok(pub_socket)
 }
@@ -81,6 +83,7 @@ pub fn zmq_init_sub(thread_num: i32, connect_addrs: &[String]) -> zmq2::Result<z
     let context = zmq2::Context::new();
     context.set_io_threads(thread_num)?;
     let sub_socket = context.socket(zmq2::SUB)?;
+    sub_socket.set_linger(0)?;
     for addr in connect_addrs.iter() {
         sub_socket.connect(addr)?;
     }
