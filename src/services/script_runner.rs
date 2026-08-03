@@ -98,6 +98,8 @@ impl LaserScript {
 pub struct ScriptRunner {
     // ROS2 Radar
     radar_child: Option<Child>,
+    // Radar 视频推流窗口 (ffplay 订阅 bridge ZMQ 5559 MJPEG)
+    radar_ffplay_child: Option<Child>,
 
     // Laser
     child: Option<Child>,
@@ -111,6 +113,7 @@ impl ScriptRunner {
     pub fn new() -> Self {
         Self {
             radar_child: None,
+            radar_ffplay_child: None,
             child: None,
             active: None,
             sdr_child: None,
@@ -150,7 +153,37 @@ impl ScriptRunner {
             child.id()
         );
         self.radar_child = Some(child);
+        self.spawn_radar_ffplay();
         Ok(())
+    }
+
+    /// 启动雷达相机推流窗口（ffplay 订阅 bridge 的 MJPEG 流 tcp://localhost:5559）。
+    /// 延后启动：等 hikcamera 创建 SHM、bridge video_init 重试成功后才有数据。
+    fn spawn_radar_ffplay(&mut self) {
+        if self.radar_ffplay_child.is_some() {
+            return;
+        }
+        let repo = match resolve_radar_root() {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".into());
+        let spawned = Command::new("bash")
+            .arg("-c")
+            .arg("sleep 3; exec ffplay -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0 tcp://localhost:5559")
+            .current_dir(&repo)
+            .env("DISPLAY", &display)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .stdin(Stdio::null())
+            .spawn();
+        match spawned {
+            Ok(child) => {
+                log::info!("Radar ffplay window spawned (pid={})", child.id());
+                self.radar_ffplay_child = Some(child);
+            }
+            Err(e) => log::warn!("Failed to spawn radar ffplay: {e}"),
+        }
     }
 
     pub fn stop_radar(&mut self) {
@@ -158,6 +191,11 @@ impl ScriptRunner {
             let _ = child.kill();
             let _ = child.wait();
         }
+        if let Some(mut child) = self.radar_ffplay_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = Command::new("pkill").args(["-f", "[f]fplay tcp://localhost:5559"]).output();
         let container = radar_container();
         let inner = "pkill -f \"[r]os2 launch\"; pkill -f \"[h]ikcamera_ros_driver\"; \
                      pkill -f \"[h]ost_sdk_sample\"; pkill -f \"[r]adar_bridge_node\"; \
