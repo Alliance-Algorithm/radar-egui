@@ -129,7 +129,7 @@ fn test_detailed_frame_dump() {
 #[ignore]
 fn test_tx_continuous() {
     let config = SerialConfig {
-        port_name: "/dev/ttyACM0".into(),
+        port_name: "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5ABA091609-if00".into(),
         baud_rate: 115_200,
     };
     let serial = Serial::new(config).expect("open /dev/ttyACM0");
@@ -145,7 +145,7 @@ fn test_tx_continuous() {
             receiver_id: DeviceId::Unknown,
             subcontext_data: sub,
         };
-        sd.radar_side = "red".to_string();
+        sd.radar_side = "blue".to_string();
         sd
     }));
 
@@ -207,10 +207,8 @@ fn test_tx_continuous() {
         }
     });
 
-    println!("Sending 5 frames/round at 10Hz...");
-    thread::sleep(Duration::from_secs(300));
-
-    stop.store(true, Ordering::Relaxed);
-    handle.join().expect("TX thread panicked");
-    println!("Done");
+    println!("Sending 5 frames/round at 10Hz (infinite)...");
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
 }

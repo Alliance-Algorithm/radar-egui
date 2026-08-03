@@ -108,7 +108,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
                                                    └→ watch<ProcessSnapshot> → egui
 ```
 
-全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`。Radar 接收我方 `red|blue`；SDR 接收相反阵营作为 `--enemySide`；Laser 默认接收相反阵营的 `enemy red|blue`，开启 Auto 时接收 `enemy auto`。HikCamera 由 `laser_guidance` 配置和持有，单设备时由其自动选择，egui 不下发 camera device。
+全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`。Radar 接收我方 `red|blue`；SDR 接收我方阵营作为 `--enemySide`（语义为"接收我方基座波源"，红方传 red/蓝方传 blue）；Laser 默认接收相反阵营的 `enemy red|blue`，开启 Auto 时接收 `enemy auto`。HikCamera 由 `laser_guidance` 配置和持有，单设备时由其自动选择，egui 不下发 camera device。
 
 | 动作 | 行为 |
 |------|------|

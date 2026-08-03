@@ -235,7 +235,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → Tokio ProcessRuntime actor → Sc
 
 `ProcessControl` 是非阻塞 facade：UI 只发送命令和读取最新 snapshot。actor 在一个专用 OS 线程/一个 Tokio runtime 上独占 `ScriptRunner`。Start All 的 coroutine 状态机通过 `tokio::select!` 同时等待命令、启动间隔和 FIFO 重试 deadline，所以 Stop All/Shutdown 在等待期间可取消后续步骤；不存在由 egui frame polling 驱动的 `PendingStartAll` 路径。
 
-全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`：Radar 使用我方 side；SDR 使用 `side.enemy()`；Laser 使用 `enemy red|blue`，Auto 模式改用 `enemy auto`。
+全局 `TeamSide` 表示我方阵营并同步到 `SharedData.radar_side`：Radar 使用我方 side；SDR 使用我方 side 作为 `--enemySide`（接收我方基座波源：红方 433.2MHz、蓝方 433.92MHz）；Laser 使用 `enemy red|blue`，Auto 模式改用 `enemy auto`。
 
 | UI 动作 | 代码 | 外部进程 |
 |---------|------|----------|

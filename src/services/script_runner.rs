@@ -260,7 +260,7 @@ impl ScriptRunner {
             Err(_) => ".:/usr/lib/python3/dist-packages".to_owned(),
         };
         let child = Command::new("python3")
-            .args(["thread_init.py", "--enemySide", enemy_color])
+            .args(["thread_init.py", "--side", enemy_color])
             .current_dir(&sdr_dir)
             .env("PYTHONPATH", pythonpath)
             .stdout(Stdio::null())
