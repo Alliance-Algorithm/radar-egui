@@ -480,6 +480,7 @@ impl RadarApp {
             "radar_camera_node",
             "radar_fusion_node",
             "radar_bridge_node",
+            "match_recorder",
         ];
         let nodes = std::process::Command::new("docker")
             .args([
