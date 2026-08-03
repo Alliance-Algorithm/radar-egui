@@ -170,7 +170,7 @@ impl ScriptRunner {
         let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".into());
         let spawned = Command::new("bash")
             .arg("-c")
-            .arg("sleep 3; exec ffplay -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0 tcp://localhost:5559")
+            .arg("for i in $(seq 1 20); do python3 tools/video_zmq/zmq_mjpeg_player.py --addr tcp://localhost:5559 2>/dev/null | ffplay -f mjpeg -i - && exit 0; sleep 2; done")
             .current_dir(&repo)
             .env("DISPLAY", &display)
             .stdout(Stdio::null())
