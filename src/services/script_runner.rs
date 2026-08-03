@@ -162,7 +162,9 @@ impl ScriptRunner {
         let inner = "pkill -f \"[r]os2 launch\"; pkill -f \"[h]ikcamera_ros_driver\"; \
                      pkill -f \"[h]ost_sdk_sample\"; pkill -f \"[r]adar_bridge_node\"; \
                      pkill -f \"[r]adar_lidar_node\"; pkill -f \"[r]adar_camera_node\"; \
-                     pkill -f \"[r]adar_fusion_node\"; true";
+                     pkill -f \"[r]adar_fusion_node\"; \
+                     pkill -f \"[m]p4_replay\"; pkill -f \"[l]ocation_recorder\"; \
+                     pkill -f \"[s]tatic_transform_publisher\"; true";
         let _ = Command::new("docker")
             .args(["exec", container, "bash", "-lc", inner])
             .output();
