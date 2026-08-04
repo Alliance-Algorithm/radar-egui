@@ -209,9 +209,9 @@ impl RadarApp {
                                 .width(ui.available_width().max(120.0))
                                 .show_ui(ui, |ui| {
                                     for p in [
+                                        "/dev/ttyACM0",
                                         "/dev/ttyUSB0",
                                         "/dev/ttyUSB1",
-                                        "/dev/ttyACM0",
                                         "/dev/ttyCH341USB0",
                                     ] {
                                         ui.selectable_value(

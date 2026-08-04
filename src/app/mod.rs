@@ -189,7 +189,7 @@ impl RadarApp {
             process_command_error: None,
             laser_stage_overlay: true,
             laser_stage_demo: false,
-            serial_port_name: "/dev/ttyUSB0".to_string(),
+            serial_port_name: "/dev/ttyACM0".to_string(),
             serial_baud: 115_200,
             serial_open: false,
             serial_error: None,
