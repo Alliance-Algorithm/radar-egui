@@ -113,12 +113,12 @@ enum ConnectionStatus {
 
 impl Default for RadarApp {
     fn default() -> Self {
-        Self::new_with_zmq_pub_ports(5557, 5558)
+        Self::new_with_zmq_pub_ports(5557, 5558, 5561)
     }
 }
 
 impl RadarApp {
-    fn new_with_zmq_pub_ports(pub_port_1: u16, pub_port_2: u16) -> Self {
+    fn new_with_zmq_pub_ports(pub_port_1: u16, pub_port_2: u16, pub_port_3: u16) -> Self {
         let (shared_reader, _shared_writer) = SharedReader::new_pair();
         let shared = shared_reader.inner();
         let (laser_feed, _laser_writer) = LaserObservationReader::new_pair();
@@ -132,6 +132,7 @@ impl RadarApp {
             &[
                 &format!("tcp://*:{pub_port_1}"),
                 &format!("tcp://*:{pub_port_2}"),
+                &format!("tcp://*:{pub_port_3}"),
             ],
             shared.clone(),
         );
@@ -481,7 +482,7 @@ mod tests {
     /// collide, and serialize on the lock to release the ports before dropping the app.
     fn radar_app_for_test() -> (std::sync::MutexGuard<'static, ()>, RadarApp) {
         let guard = ZMQ_TEST_PORT_LOCK.lock().unwrap();
-        let mut app = RadarApp::new_with_zmq_pub_ports(5657, 5658);
+        let mut app = RadarApp::new_with_zmq_pub_ports(5657, 5658, 5661);
         app.zmq_pub.stop();
         app.zmq_sub.stop();
         (guard, app)
