@@ -5,7 +5,8 @@ use crate::shared_data::{
     RadarMarkProcessData, SerialFrameHeader, SiteEventData, CMD_ID_LENGTH, CRC16_LENGTH,
     DART_LAUNCH_CMD_ID, FRAME_HEADER_LENGTH, FRAME_HEADER_SOF, GAME_RESULT_CMD_ID,
     GAME_STATE_CMD_ID, IDX_GAME_STATE, IDX_RADAR_AUTONOMOUS_DECISION_SYNC, IDX_RADAR_MARK_PROCESS,
-    RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID, SITE_EVENT_CMD_ID,
+    IDX_ROBOT_INTERACTION_DECISION, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID, RADAR_MARK_PROCESS_CMD_ID,
+    SITE_EVENT_CMD_ID,
 };
 use deku::prelude::*;
 use std::sync::mpsc;
@@ -171,6 +172,48 @@ impl SerialParser {
                         lock.radar_autonomous_decision_sync = v;
                         for t in &self.tx {
                             t.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
+                        }
+                        // 双倍易伤自主决策：0x020E 到达即评估并触发 0x0121（不依赖 SDR 链路）。
+                        // active==1 时累加 radar_cmd（消耗机会）；active==0 不累加但 0x0121 照发（key 照常传输）。
+                        let progress = lock.game_state.game_progress;
+                        let chance = lock.radar_autonomous_decision_sync.double_weakness_chance;
+                        let active = lock.radar_autonomous_decision_sync.double_weakness_active;
+                        if progress == 5 {
+                            // 结算：本地机会数清零
+                            lock.radar_autonomous_decision_sync.double_weakness_chance = 0;
+                            log::info!(
+                                "Serial RX decision eval: game_progress=5 (settlement), double_weakness_chance reset to 0"
+                            );
+                        } else if progress == 4 {
+                            if active == 1 {
+                                // 仅 active==1（正在被触发）时允许累加：chance==0 只发 0；
+                                // chance>=1 单调 +1（消耗一个机会），radar_cmd 上限 2。
+                                if chance == 0 {
+                                    lock.radar_autonomous_decision.radar_cmd = 0;
+                                } else if lock.radar_autonomous_decision.radar_cmd < 2 {
+                                    lock.radar_autonomous_decision.radar_cmd = lock
+                                        .radar_autonomous_decision
+                                        .radar_cmd
+                                        .saturating_add(1);
+                                }
+                            }
+                            log::info!(
+                                "Serial RX decision eval: game_progress=4 active={} chance={} radar_cmd={} (0x0121 sent)",
+                                active,
+                                chance,
+                                lock.radar_autonomous_decision.radar_cmd,
+                            );
+                            for t in &self.tx {
+                                t.send(IDX_ROBOT_INTERACTION_DECISION).ok();
+                            }
+                        } else {
+                            log::info!(
+                                "Serial RX decision eval: game_progress={} active={} chance={} radar_cmd={} (no trigger)",
+                                progress,
+                                active,
+                                chance,
+                                lock.radar_autonomous_decision.radar_cmd,
+                            );
                         }
                         parsed_any = true;
                     } else {

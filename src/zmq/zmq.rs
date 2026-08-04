@@ -152,10 +152,7 @@ pub fn zmq_start_pub(
                     });
                     Some(msg.to_string())
                 }
-                _ => {
-                    log::warn!("ZMQ PUB unknown idx: {}", idx);
-                    None
-                }
+                _ => None,
             }
         };
         if let Some(payload) = payload {
@@ -229,51 +226,16 @@ pub fn zmq_start_sub(
                 guard.sdr_ammo = msg.ammo;
                 guard.sdr_state = msg.state;
                 guard.sdr_gain = msg.gain;
+                // key 由 SDR 自行更新：破解的干扰密钥注入 0x0121 决策帧（password 字段）
+                let jamming_key = msg.key.key;
                 guard.sdr_jamming_key = msg.key;
+                guard.radar_autonomous_decision.password = jamming_key;
                 guard.robot_interaction = RobotInteractionData {
                     subcontext_cmd_id: RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
                     sender_id: DeviceId::Unknown,
                     receiver_id: DeviceId::Unknown,
                     subcontext_data: sub_data,
                 };
-                // Radar autonomous decision: evaluate on each SDR write.
-                let game_progress = guard.game_state.game_progress;
-                if game_progress == 5 {
-                    // Settlement stage: reset the local chance counter.
-                    guard.radar_autonomous_decision_sync.double_weakness_chance = 0;
-                    log::info!(
-                        "ZMQ SUB SDR decision: game_progress=5 (settlement), double_weakness_chance reset to 0"
-                    );
-                } else if game_progress == 4 {
-                    let mut chance = guard.radar_autonomous_decision_sync.double_weakness_chance;
-                    let active = guard.radar_autonomous_decision_sync.double_weakness_active;
-                    if chance > 0 {
-                        chance = chance.wrapping_add(1);
-                        guard.radar_autonomous_decision_sync.double_weakness_chance = chance;
-                    }
-                    let mut radar_cmd_inc = false;
-                    if chance > 0 && active == 0 {
-                        guard.radar_autonomous_decision.radar_cmd =
-                            guard.radar_autonomous_decision.radar_cmd.wrapping_add(1);
-                        radar_cmd_inc = true;
-                    }
-                    log::info!(
-                        "ZMQ SUB SDR decision: game_progress=4 chance={} active={} radar_cmd={}{}",
-                        chance,
-                        active,
-                        guard.radar_autonomous_decision.radar_cmd,
-                        if radar_cmd_inc {
-                            " (radar_cmd +1, 0x0121 triggered)"
-                        } else {
-                            " (no trigger)"
-                        },
-                    );
-                } else {
-                    log::info!(
-                        "ZMQ SUB SDR decision: game_progress={} (not in match, skip)",
-                        game_progress
-                    );
-                }
             }
             notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
             continue;

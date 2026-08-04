@@ -6,11 +6,18 @@ use std::time::Duration;
 
 use radar_egui::robot_interaction_id::DeviceId;
 use radar_egui::serial::serial::{serial_start_transmitter, Serial};
+use radar_egui::serial::serial_crc;
+use radar_egui::serial::serial_parser::SerialParser;
 use radar_egui::serial::serialconfig::SerialConfig;
 use radar_egui::shared_data::{
-    MinimapReceiveRadarData, SharedData, IDX_MINIMAP_RECEIVE_RADAR, MINIMAP_RECEIVE_RADAR_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, ROBOT_INTERACTION_CMD_ID,
+    CMD_ID_LENGTH, CRC16_LENGTH, FRAME_HEADER_LENGTH, FRAME_HEADER_SOF,
+    MinimapReceiveRadarData, RadarAutonomousDecisionSyncData, SharedData,
+    IDX_MINIMAP_RECEIVE_RADAR, IDX_RADAR_AUTONOMOUS_DECISION_SYNC,
+    IDX_ROBOT_INTERACTION_DECISION, MINIMAP_RECEIVE_RADAR_CMD_ID,
+    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID,
+    ROBOT_INTERACTION_CMD_ID,
 };
+use deku::prelude::*;
 
 fn stop_worker(tx: mpsc::Sender<usize>, handle: thread::JoinHandle<()>, stop: Arc<AtomicBool>) {
     stop.store(true, Ordering::Relaxed);
@@ -99,6 +106,48 @@ fn broadcast_sends_five_interaction_frames() {
         .expect("set test read timeout");
     let serial = Serial::from_port(input);
     let shared = Arc::new(Mutex::new(SharedData::default()));
+    let (tx, rx) = mpsc::channel();
+    let stop = Arc::new(AtomicBool::new(false));
+    let handle = serial_start_transmitter(
+        serial,
+        shared,
+        rx,
+        stop.clone(),
+        Arc::new(AtomicBool::new(true)),
+    );
+
+    tx.send(radar_egui::shared_data::IDX_ROBOT_INTERACTION)
+        .expect("send robot interaction notification");
+
+    // SDR 驱动的 0x0200 广播仅 5 帧（0x0121 决策帧由 0x020E sync 单独触发）。
+    let bytes = read_bytes(&mut output, 5 * 127, Duration::from_millis(1000));
+
+    assert_eq!(bytes.len(), 5 * 127, "five broadcast frames only");
+    for i in 0..5 {
+        let frame = &bytes[i * 127..(i + 1) * 127];
+        assert_eq!(frame[0], 0xA5, "frame {} SOF", i);
+        let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
+        assert_eq!(
+            cmd_id, ROBOT_INTERACTION_CMD_ID,
+            "frame {} cmd_id 0x0301",
+            i
+        );
+        let subcmd = u16::from_le_bytes([frame[7], frame[8]]);
+        assert_eq!(subcmd, 0x0200, "frame {} subcmd 0x0200", i);
+    }
+
+    stop_worker(tx, handle, stop);
+}
+
+#[test]
+#[cfg(unix)]
+fn decision_notification_sends_single_0121_frame() {
+    let (input, mut output) = serial2::SerialPort::pair().expect("open test serial pair");
+    output
+        .set_read_timeout(Duration::from_millis(50))
+        .expect("set test read timeout");
+    let serial = Serial::from_port(input);
+    let shared = Arc::new(Mutex::new(SharedData::default()));
     {
         let mut guard = shared.lock().unwrap();
         guard.radar_autonomous_decision.radar_cmd = 3;
@@ -114,25 +163,14 @@ fn broadcast_sends_five_interaction_frames() {
         Arc::new(AtomicBool::new(true)),
     );
 
-    tx.send(radar_egui::shared_data::IDX_ROBOT_INTERACTION)
-        .expect("send robot interaction notification");
+    tx.send(radar_egui::shared_data::IDX_ROBOT_INTERACTION_DECISION)
+        .expect("send decision notification");
 
-    // The decision frame (0x0121 subcmd, 14-byte data, receiver =
-    // RefereeServer) is sent first, then the 5 broadcast frames (0x0200
-    // subcmd, 118-byte data).
+    // 0x0121 决策帧：14-byte data，receiver = RefereeServer。
     let decision_len = 5 + 2 + 14 + 2;
-    let bytes = read_bytes(
-        &mut output,
-        5 * 127 + decision_len,
-        Duration::from_millis(1000),
-    );
+    let decision = read_bytes(&mut output, decision_len, Duration::from_millis(1000));
 
-    assert_eq!(
-        bytes.len(),
-        5 * 127 + decision_len,
-        "one decision + five broadcast frames"
-    );
-    let decision = &bytes[0..decision_len];
+    assert_eq!(decision.len(), decision_len, "single decision frame");
     assert_eq!(decision[0], 0xA5, "decision SOF");
     let cmd_id = u16::from_le_bytes([decision[5], decision[6]]);
     assert_eq!(cmd_id, ROBOT_INTERACTION_CMD_ID, "decision cmd_id 0x0301");
@@ -147,18 +185,106 @@ fn broadcast_sends_five_interaction_frames() {
     assert_eq!(receiver, 0x8080, "receiver = RefereeServer");
     assert_eq!(decision[13], 3, "radar_cmd");
     assert_eq!(decision[14], 2, "password_cmd");
-    for i in 0..5 {
-        let frame = &bytes[decision_len + i * 127..decision_len + (i + 1) * 127];
-        assert_eq!(frame[0], 0xA5, "frame {} SOF", i);
-        let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);
-        assert_eq!(
-            cmd_id, ROBOT_INTERACTION_CMD_ID,
-            "frame {} cmd_id 0x0301",
-            i
-        );
-        let subcmd = u16::from_le_bytes([frame[7], frame[8]]);
-        assert_eq!(subcmd, 0x0200, "frame {} subcmd 0x0200", i);
-    }
 
     stop_worker(tx, handle, stop);
+}
+
+// ─── 0x020E 双倍易伤评估（不同 chance/active 数据）───
+
+fn build_020e_frame(chance: u8, active: u8) -> Vec<u8> {
+    let data = RadarAutonomousDecisionSyncData {
+        double_weakness_chance: chance,
+        double_weakness_active: active,
+        ..Default::default()
+    }
+    .to_bytes()
+    .unwrap();
+    let total = FRAME_HEADER_LENGTH + CMD_ID_LENGTH + data.len() + CRC16_LENGTH;
+    let mut frame = vec![0u8; total];
+    frame[0] = FRAME_HEADER_SOF;
+    frame[1] = data.len() as u8;
+    frame[3] = 0; // seq
+    frame[5] = (RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID & 0xff) as u8;
+    frame[6] = (RADAR_AUTONOMOUS_DECISION_SYNC_CMD_ID >> 8) as u8;
+    frame[FRAME_HEADER_LENGTH + CMD_ID_LENGTH..FRAME_HEADER_LENGTH + CMD_ID_LENGTH + data.len()]
+        .copy_from_slice(&data);
+    serial_crc::append_crc8(&mut frame[..FRAME_HEADER_LENGTH]).unwrap();
+    serial_crc::append_crc16(&mut frame).unwrap();
+    frame
+}
+
+fn drain_notifications(rx: &mpsc::Receiver<usize>) -> Vec<usize> {
+    let mut out = Vec::new();
+    while let Ok(idx) = rx.try_recv() {
+        out.push(idx);
+    }
+    out
+}
+
+fn parse_020e(parser: &mut SerialParser, rx: &mpsc::Receiver<usize>, chance: u8, active: u8) -> Vec<usize> {
+    let mut buffer = build_020e_frame(chance, active);
+    parser.parser(&mut buffer);
+    drain_notifications(rx)
+}
+
+#[test]
+fn parser_020e_decision_eval_varies_with_chance_and_active() {
+    let shared = Arc::new(Mutex::new(SharedData::default()));
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 4;
+    }
+    let (tx, rx) = mpsc::channel();
+    let mut parser = SerialParser::new_with_tx(shared.clone(), vec![tx]);
+    let decision_idx = IDX_ROBOT_INTERACTION_DECISION;
+
+    // 1) chance=1 active=1：radar_cmd 0 -> 1，触发 0x0121
+    let notifs = parse_020e(&mut parser, &rx, 1, 1);
+    assert!(notifs.contains(&decision_idx), "chance=1 active=1 应触发");
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 1);
+
+    // 2) 再次 chance=1 active=1：radar_cmd 1 -> 2（单调 +1）
+    parse_020e(&mut parser, &rx, 1, 1);
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 2);
+
+    // 3) chance=2 active=1：radar_cmd 到 2 保持，不超上限
+    let notifs = parse_020e(&mut parser, &rx, 2, 1);
+    assert!(notifs.contains(&decision_idx));
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 2);
+
+    // 4) chance=0 active=1：radar_cmd 归 0（只发 0），仍触发
+    let notifs = parse_020e(&mut parser, &rx, 0, 1);
+    assert!(notifs.contains(&decision_idx), "chance=0 active=1 仍发 0x0121");
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
+
+    // 5) chance=1 active=0：不累加（radar_cmd 保持 0），但 0x0121 照发（key 照常传输）
+    let notifs = parse_020e(&mut parser, &rx, 1, 0);
+    assert!(notifs.contains(&decision_idx), "active=0 时 0x0121 照发");
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
+
+    // 6) progress=5（结算）：chance 清零，不发决策帧
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 5;
+    }
+    let notifs = parse_020e(&mut parser, &rx, 2, 1);
+    assert!(!notifs.contains(&decision_idx), "progress=5 不发 0x0121");
+    assert_eq!(
+        shared.lock().unwrap().radar_autonomous_decision_sync.double_weakness_chance,
+        0,
+        "progress=5 清零 chance"
+    );
+
+    // 7) progress=1（其它阶段）：不发决策帧，值不变
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 1;
+    }
+    let notifs = parse_020e(&mut parser, &rx, 1, 1);
+    assert!(!notifs.contains(&decision_idx), "非比赛阶段不发 0x0121");
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
+
+    // 8) 每次 0x020E 解析都通知 ZMQ PUB（IDX_RADAR_AUTONOMOUS_DECISION_SYNC）
+    let notifs = parse_020e(&mut parser, &rx, 1, 1);
+    assert!(notifs.contains(&IDX_RADAR_AUTONOMOUS_DECISION_SYNC));
 }

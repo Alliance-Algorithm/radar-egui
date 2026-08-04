@@ -231,13 +231,14 @@ fn test_zmq_sub_sdr_populates_robot_interaction() {
 }
 
 #[test]
-fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
+fn test_zmq_sub_sdr_does_not_touch_autonomous_decision() {
     let shared = Arc::new(Mutex::new(SharedData::default()));
     {
         let mut guard = shared.lock().unwrap();
         guard.game_state.game_progress = 4;
         guard.radar_autonomous_decision_sync.double_weakness_chance = 1;
         guard.radar_autonomous_decision_sync.double_weakness_active = 0;
+        guard.radar_autonomous_decision.radar_cmd = 0;
     }
     let stop = Arc::new(AtomicBool::new(false));
 
@@ -261,72 +262,24 @@ fn test_zmq_sub_sdr_autonomous_decision_increments_chance_and_radar_cmd() {
         &SdrEnemyRobotGainData::default(),
     );
 
+    // 双倍易伤评估已从 SDR 路径移到串口 0x020E 解析（serial_parser）：
+    // SDR 消息到达不应再改动 sync 值或 radar_cmd。
     zmq_send(&pub_sock, &json).unwrap();
     thread::sleep(Duration::from_millis(100));
     {
         let guard = shared.lock().unwrap();
         assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance, 2,
-            "chance incremented once"
+            guard.radar_autonomous_decision_sync.double_weakness_chance, 1,
+            "chance untouched by SDR"
         );
         assert_eq!(
-            guard.radar_autonomous_decision.radar_cmd, 1,
-            "radar_cmd incremented once"
-        );
-    }
-
-    zmq_send(&pub_sock, &json).unwrap();
-    thread::sleep(Duration::from_millis(100));
-    {
-        let guard = shared.lock().unwrap();
-        assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance, 3,
-            "chance incremented twice"
+            guard.radar_autonomous_decision.radar_cmd, 0,
+            "radar_cmd untouched by SDR"
         );
         assert_eq!(
-            guard.radar_autonomous_decision.radar_cmd, 2,
-            "radar_cmd incremented twice"
-        );
-    }
-
-    // Settlement stage (game_progress == 5) resets the local chance counter.
-    {
-        let mut guard = shared.lock().unwrap();
-        guard.game_state.game_progress = 5;
-        guard.radar_autonomous_decision_sync.double_weakness_chance = 3;
-    }
-    zmq_send(&pub_sock, &json).unwrap();
-    thread::sleep(Duration::from_millis(100));
-    {
-        let guard = shared.lock().unwrap();
-        assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance, 0,
-            "chance reset at game_progress == 5"
-        );
-        assert_eq!(
-            guard.radar_autonomous_decision.radar_cmd, 2,
-            "radar_cmd not incremented after reset"
-        );
-    }
-
-    // Other stages (e.g. game_progress == 1) do not touch the sync values:
-    // they trust the referee-provided sync data.
-    {
-        let mut guard = shared.lock().unwrap();
-        guard.game_state.game_progress = 1;
-        guard.radar_autonomous_decision_sync.double_weakness_chance = 2;
-    }
-    zmq_send(&pub_sock, &json).unwrap();
-    thread::sleep(Duration::from_millis(100));
-    {
-        let guard = shared.lock().unwrap();
-        assert_eq!(
-            guard.radar_autonomous_decision_sync.double_weakness_chance, 2,
-            "chance untouched outside stage 4/5"
-        );
-        assert_eq!(
-            guard.radar_autonomous_decision.radar_cmd, 2,
-            "radar_cmd untouched outside stage 4/5"
+            guard.radar_autonomous_decision.password,
+            [1, 2, 3, 4, 5, 6],
+            "SDR jamming key injected into 0x0121 decision password"
         );
     }
 

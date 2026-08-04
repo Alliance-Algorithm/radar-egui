@@ -281,8 +281,9 @@ impl RadarApp {
                         .clone();
                     let (tx_tx, tx_rx) = std::sync::mpsc::channel();
                     let notify_all = match pub_tx {
-                        Some(zmq_tx) => vec![zmq_tx],
-                        None => vec![],
+                        // parser 同时通知 ZMQ PUB 与串口 TX 线程（0x020E 评估触发 0x0121 决策帧）
+                        Some(zmq_tx) => vec![zmq_tx, tx_tx.clone()],
+                        None => vec![tx_tx.clone()],
                     };
                     let rx = serial_start_receiver(
                         port,

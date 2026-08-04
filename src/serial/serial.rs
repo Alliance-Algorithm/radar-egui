@@ -4,9 +4,9 @@ use super::serialconfig::SerialConfig;
 use crate::robot_interaction_id::DeviceId;
 use crate::shared_data::{RobotInteractionData, SharedData};
 use crate::shared_data::{
-    IDX_MINIMAP_RECEIVE_RADAR, IDX_ROBOT_INTERACTION, MINIMAP_RECEIVE_RADAR_CMD_ID,
-    RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID, RADAR_INTERACTION_SUBCONTEXT_CMD_ID,
-    ROBOT_INTERACTION_CMD_ID,
+    IDX_MINIMAP_RECEIVE_RADAR, IDX_ROBOT_INTERACTION, IDX_ROBOT_INTERACTION_DECISION,
+    MINIMAP_RECEIVE_RADAR_CMD_ID, RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+    RADAR_INTERACTION_SUBCONTEXT_CMD_ID, ROBOT_INTERACTION_CMD_ID,
 };
 use deku::prelude::*;
 use serial2::{SerialPort, Settings};
@@ -124,6 +124,28 @@ pub fn serial_start_receiver(
     })
 }
 
+/// Build and send a single 0x0121 radar autonomous decision frame to the referee.
+fn send_decision_frame(serial: &Serial, data: &SharedData, radar_id: DeviceId) {
+    let decision_data = data.radar_autonomous_decision.to_bytes().unwrap_or_default();
+    let decision = RobotInteractionData {
+        subcontext_cmd_id: RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
+        sender_id: radar_id,
+        receiver_id: DeviceId::RefereeServer,
+        subcontext_data: decision_data,
+    };
+    let decision_bytes = decision.to_bytes();
+    let decision_frame = serial_package(ROBOT_INTERACTION_CMD_ID, decision_bytes);
+    if let Ok(frame_bytes) = decision_frame.to_bytes() {
+        serial.send_data(&frame_bytes);
+        log::info!(
+            "Serial TX 0x0121 radar decision sent: radar_cmd={} password_cmd={} ({} bytes)",
+            data.radar_autonomous_decision.radar_cmd,
+            data.radar_autonomous_decision.password_cmd,
+            frame_bytes.len()
+        );
+    }
+}
+
 /// Spawn a transmitter thread that listens for idx notifications via channel,
 /// constructs the corresponding DJI frame with `serial_package`, and sends it.
 pub fn serial_start_transmitter(
@@ -160,6 +182,16 @@ pub fn serial_start_transmitter(
                     }
                     continue;
                 }
+                IDX_ROBOT_INTERACTION_DECISION => {
+                    // 0x020E sync 触发：只发 0x0121 决策帧（含 key，不依赖 SDR 数据）。
+                    let radar_id = if data.radar_side == "blue" {
+                        DeviceId::BlueRadar
+                    } else {
+                        DeviceId::RedRadar
+                    };
+                    send_decision_frame(&serial, &data, radar_id);
+                    continue;
+                }
                 IDX_ROBOT_INTERACTION => {
                     let mut sub_data = data.robot_interaction.subcontext_data.clone();
                     sub_data.resize(112, 0);
@@ -185,36 +217,9 @@ pub fn serial_start_transmitter(
                             DeviceId::RedAerial,
                         ]
                     };
-                    let decision_data = data
-                        .radar_autonomous_decision
-                        .to_bytes()
-                        .unwrap_or_default();
-                    let decision_radar_cmd = data.radar_autonomous_decision.radar_cmd;
-                    let decision_password_cmd = data.radar_autonomous_decision.password_cmd;
                     drop(data);
-                    // Radar autonomous decision first: a single 0x0301 frame to
-                    // the referee system (subcontext cmd_id = 0x0121).
-                    if !stop.load(Ordering::Relaxed) {
-                        let decision = RobotInteractionData {
-                            subcontext_cmd_id: RADAR_AUTONOMOUS_DECISION_DATA_CMD_ID,
-                            sender_id: radar_id,
-                            receiver_id: DeviceId::RefereeServer,
-                            subcontext_data: decision_data,
-                        };
-                        let decision_bytes = decision.to_bytes();
-                        let decision_frame =
-                            serial_package(ROBOT_INTERACTION_CMD_ID, decision_bytes);
-                        if let Ok(frame_bytes) = decision_frame.to_bytes() {
-                            serial.send_data(&frame_bytes);
-                            log::info!(
-                                "Serial TX 0x0121 radar decision sent: radar_cmd={} password_cmd={} ({} bytes)",
-                                decision_radar_cmd,
-                                decision_password_cmd,
-                                frame_bytes.len()
-                            );
-                        }
-                    }
-                    // Then the SDR data broadcast to the five allied units.
+                    // SDR 数据广播到五个己方单位（0x0200）；0x0121 决策帧由
+                    // IDX_ROBOT_INTERACTION_DECISION（0x020E sync）单独触发。
                     let mut broadcast_frames = 0;
                     for &target in targets {
                         if stop.load(Ordering::Relaxed) {
@@ -241,8 +246,9 @@ pub fn serial_start_transmitter(
                     );
                     continue;
                 }
+                // 其它 idx（GAME_STATE / RADAR_MARK_PROCESS / DECISION_SYNC 等）与
+                // 串口 TX 无关，静默忽略。
                 _ => {
-                    log::warn!("Serial TX unknown idx: {}", idx);
                     drop(data);
                     continue;
                 }
