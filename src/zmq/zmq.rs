@@ -118,7 +118,6 @@ pub fn zmq_start_pub(
                         "stage_remain_time": lock.game_state.stage_remain_time,
                         "sync_timestamp": lock.game_state.sync_timestamp,
                     });
-                    log::info!("ZMQ PUB GameState: {}", msg);
                     Some(msg.to_string())
                 }
                 IDX_RADAR_MARK_PROCESS => {
@@ -141,7 +140,6 @@ pub fn zmq_start_pub(
                         "ally_aerial_targeted": lock.radar_mark_process.ally_aerial_targeted,
                         "ally_aerial_countered": lock.radar_mark_process.ally_aerial_countered,
                     });
-                    log::info!("ZMQ PUB RadarMarkProcess: {}", msg);
                     Some(msg.to_string())
                 }
                 IDX_RADAR_AUTONOMOUS_DECISION_SYNC => {
@@ -152,7 +150,6 @@ pub fn zmq_start_pub(
                         "encryption_rank": lock.radar_autonomous_decision_sync.encryption_rank,
                         "key_modifiable": lock.radar_autonomous_decision_sync.key_modifiable,
                     });
-                    log::info!("ZMQ PUB RadarAutonomousDecisionSync: {}", msg);
                     Some(msg.to_string())
                 }
                 _ => {
@@ -162,10 +159,19 @@ pub fn zmq_start_pub(
             }
         };
         if let Some(payload) = payload {
+            let mut sent_ok = true;
             for socket in &pub_sockets {
                 if let Err(error) = zmq_send(socket, &payload) {
                     log::error!("ZMQ PUB send failed: {error}");
+                    sent_ok = false;
                 }
+            }
+            if sent_ok {
+                log::info!(
+                    "ZMQ PUB sent to {} socket(s): {}",
+                    pub_sockets.len(),
+                    payload
+                );
             }
         }
     })
@@ -186,6 +192,21 @@ pub fn zmq_start_sub(
         };
         // SDR
         if let Ok(msg) = serde_json::from_slice::<SdrMsg>(&bytes) {
+            log::info!(
+                "ZMQ SUB SDR: hero=({},{}) engineer=({},{}) inf3=({},{}) inf4=({},{}) sentry=({},{}) aerial=({},{})",
+                msg.position.hero_x,
+                msg.position.hero_y,
+                msg.position.engineer_x,
+                msg.position.engineer_y,
+                msg.position.infantry_3_x,
+                msg.position.infantry_3_y,
+                msg.position.infantry_4_x,
+                msg.position.infantry_4_y,
+                msg.position.sentry_x,
+                msg.position.sentry_y,
+                msg.position.aerial_x,
+                msg.position.aerial_y,
+            );
             let mut sub_data = vec![0x03]; // message_type as first byte
             sub_data.extend_from_slice(&msg.blood.to_bytes().unwrap_or_default());
             sub_data.extend_from_slice(&msg.ammo.to_bytes().unwrap_or_default());
@@ -217,18 +238,41 @@ pub fn zmq_start_sub(
                 };
                 // Radar autonomous decision: evaluate on each SDR write.
                 let game_progress = guard.game_state.game_progress;
-                let sync = &mut guard.radar_autonomous_decision_sync;
                 if game_progress == 5 {
                     // Settlement stage: reset the local chance counter.
-                    sync.double_weakness_chance = 0;
+                    guard.radar_autonomous_decision_sync.double_weakness_chance = 0;
+                    log::info!(
+                        "ZMQ SUB SDR decision: game_progress=5 (settlement), double_weakness_chance reset to 0"
+                    );
                 } else if game_progress == 4 {
-                    if sync.double_weakness_chance > 0 {
-                        sync.double_weakness_chance = sync.double_weakness_chance.wrapping_add(1);
+                    let mut chance = guard.radar_autonomous_decision_sync.double_weakness_chance;
+                    let active = guard.radar_autonomous_decision_sync.double_weakness_active;
+                    if chance > 0 {
+                        chance = chance.wrapping_add(1);
+                        guard.radar_autonomous_decision_sync.double_weakness_chance = chance;
                     }
-                    if sync.double_weakness_chance > 0 && sync.double_weakness_active == 0 {
+                    let mut radar_cmd_inc = false;
+                    if chance > 0 && active == 0 {
                         guard.radar_autonomous_decision.radar_cmd =
                             guard.radar_autonomous_decision.radar_cmd.wrapping_add(1);
+                        radar_cmd_inc = true;
                     }
+                    log::info!(
+                        "ZMQ SUB SDR decision: game_progress=4 chance={} active={} radar_cmd={}{}",
+                        chance,
+                        active,
+                        guard.radar_autonomous_decision.radar_cmd,
+                        if radar_cmd_inc {
+                            " (radar_cmd +1, 0x0121 triggered)"
+                        } else {
+                            " (no trigger)"
+                        },
+                    );
+                } else {
+                    log::info!(
+                        "ZMQ SUB SDR decision: game_progress={} (not in match, skip)",
+                        game_progress
+                    );
                 }
             }
             notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
@@ -236,6 +280,14 @@ pub fn zmq_start_sub(
         }
         // Laser
         if let Ok(msg) = serde_json::from_slice::<LaserMsg>(&bytes) {
+            log::info!(
+                "ZMQ SUB Laser: detected={} center=({:.1}, {:.1}) brightness={:.3} contour_points={}",
+                msg.detected,
+                msg.center[0],
+                msg.center[1],
+                msg.brightness,
+                msg.contour.len(),
+            );
             if let Ok(mut guard) = shared.lock() {
                 // laser data: if needed, add to SharedData
             }
@@ -243,6 +295,33 @@ pub fn zmq_start_sub(
         }
         // Lidar
         if let Ok(msg) = serde_json::from_slice::<LidarMsg>(&bytes) {
+            log::info!(
+                "ZMQ SUB Lidar: opp hero=({},{}) eng=({},{}) inf3=({},{}) inf4=({},{}) aerial=({},{}) sentry=({},{}) ally hero=({},{}) eng=({},{}) inf3=({},{}) inf4=({},{}) aerial=({},{}) sentry=({},{})",
+                msg.opponent_hero_x,
+                msg.opponent_hero_y,
+                msg.opponent_engineer_x,
+                msg.opponent_engineer_y,
+                msg.opponent_infantry_3_x,
+                msg.opponent_infantry_3_y,
+                msg.opponent_infantry_4_x,
+                msg.opponent_infantry_4_y,
+                msg.opponent_aerial_x,
+                msg.opponent_aerial_y,
+                msg.opponent_sentry_x,
+                msg.opponent_sentry_y,
+                msg.ally_hero_x,
+                msg.ally_hero_y,
+                msg.ally_engineer_x,
+                msg.ally_engineer_y,
+                msg.ally_infantry_3_x,
+                msg.ally_infantry_3_y,
+                msg.ally_infantry_4_x,
+                msg.ally_infantry_4_y,
+                msg.ally_aerial_x,
+                msg.ally_aerial_y,
+                msg.ally_sentry_x,
+                msg.ally_sentry_y,
+            );
             if let Ok(mut guard) = shared.lock() {
                 guard.enemy_hero.x = msg.opponent_hero_x as i16;
                 guard.enemy_hero.y = msg.opponent_hero_y as i16;
@@ -296,6 +375,10 @@ pub fn zmq_start_sub(
             notify_tx(&tx_slot, IDX_MINIMAP_RECEIVE_RADAR);
             continue;
         }
+        log::warn!(
+            "ZMQ SUB: message not parsed ({} bytes)",
+            bytes.len()
+        );
     })
 }
 
