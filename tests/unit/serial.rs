@@ -238,31 +238,26 @@ fn parser_020e_decision_eval_varies_with_chance_and_active() {
     let mut parser = SerialParser::new_with_tx(shared.clone(), vec![tx]);
     let decision_idx = IDX_ROBOT_INTERACTION_DECISION;
 
-    // 1) chance=1 active=1：radar_cmd 0 -> 1，触发 0x0121
-    let notifs = parse_020e(&mut parser, &rx, 1, 1);
-    assert!(notifs.contains(&decision_idx), "chance=1 active=1 应触发");
+    // 1) 首次请求：chance=1 active=0（尚未生效）→ radar_cmd 0 -> 1，触发 0x0121
+    let notifs = parse_020e(&mut parser, &rx, 1, 0);
+    assert!(notifs.contains(&decision_idx), "active=0 chance>0 应触发首次双倍易伤");
     assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 1);
 
-    // 2) 再次 chance=1 active=1：radar_cmd 1 -> 2（单调 +1）
-    parse_020e(&mut parser, &rx, 1, 1);
+    // 2) 再次请求：chance=1 active=0 → radar_cmd 1 -> 2（单调 +1）
+    parse_020e(&mut parser, &rx, 1, 0);
     assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 2);
 
-    // 3) chance=2 active=1：radar_cmd 到 2 保持，不超上限
-    let notifs = parse_020e(&mut parser, &rx, 2, 1);
+    // 3) 生效期/排队：chance=1 active=1 → radar_cmd 已到上限 2，保持不超
+    let notifs = parse_020e(&mut parser, &rx, 1, 1);
     assert!(notifs.contains(&decision_idx));
     assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 2);
 
-    // 4) chance=0 active=1：radar_cmd 归 0（只发 0），仍触发
+    // 4) chance=0 active=1：无机会不累加（radar_cmd 保持 2，不破坏单调递增），仍触发（key 照常传输）
     let notifs = parse_020e(&mut parser, &rx, 0, 1);
-    assert!(notifs.contains(&decision_idx), "chance=0 active=1 仍发 0x0121");
-    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
+    assert!(notifs.contains(&decision_idx), "chance=0 仍发 0x0121（key 传输）");
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 2);
 
-    // 5) chance=1 active=0：不累加（radar_cmd 保持 0），但 0x0121 照发（key 照常传输）
-    let notifs = parse_020e(&mut parser, &rx, 1, 0);
-    assert!(notifs.contains(&decision_idx), "active=0 时 0x0121 照发");
-    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
-
-    // 6) progress=5（结算）：chance 清零，不发决策帧
+    // 5) 新局：progress=5（结算）→ chance 清零，radar_cmd 归 0（下一局开局为 0），不发决策帧
     {
         let mut guard = shared.lock().unwrap();
         guard.game_state.game_progress = 5;
@@ -274,6 +269,20 @@ fn parser_020e_decision_eval_varies_with_chance_and_active() {
         0,
         "progress=5 清零 chance"
     );
+    assert_eq!(
+        shared.lock().unwrap().radar_autonomous_decision.radar_cmd,
+        0,
+        "progress=5 重置 radar_cmd（下一局开局为 0）"
+    );
+
+    // 6) 新局首次请求：progress=4 且上一局已重置 → 再次 0 -> 1
+    {
+        let mut guard = shared.lock().unwrap();
+        guard.game_state.game_progress = 4;
+    }
+    let notifs = parse_020e(&mut parser, &rx, 1, 0);
+    assert!(notifs.contains(&decision_idx));
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 1);
 
     // 7) progress=1（其它阶段）：不发决策帧，值不变
     {
@@ -282,7 +291,7 @@ fn parser_020e_decision_eval_varies_with_chance_and_active() {
     }
     let notifs = parse_020e(&mut parser, &rx, 1, 1);
     assert!(!notifs.contains(&decision_idx), "非比赛阶段不发 0x0121");
-    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 0);
+    assert_eq!(shared.lock().unwrap().radar_autonomous_decision.radar_cmd, 1, "非比赛阶段值不变");
 
     // 8) 每次 0x020E 解析都通知 ZMQ PUB（IDX_RADAR_AUTONOMOUS_DECISION_SYNC）
     let notifs = parse_020e(&mut parser, &rx, 1, 1);

@@ -174,28 +174,26 @@ impl SerialParser {
                             t.send(IDX_RADAR_AUTONOMOUS_DECISION_SYNC).ok();
                         }
                         // 双倍易伤自主决策：0x020E 到达即评估并触发 0x0121（不依赖 SDR 链路）。
-                        // active==1 时累加 radar_cmd（消耗机会）；active==0 不累加但 0x0121 照发（key 照常传输）。
+                        // 拥有机会（chance>0）即单调递增 radar_cmd 请求触发（协议 0x0121）：
+                        // 首次请求时 active==0（尚未生效）→ radar_cmd 0→1 发起；生效期
+                        // active==1 → radar_cmd 1→2 排队第二次（第二次在第一次结束后生效）。
+                        // 上限 2（每局至多触发 2 次）；radar_cmd 开局须为 0 且单调递增。
                         let progress = lock.game_state.game_progress;
                         let chance = lock.radar_autonomous_decision_sync.double_weakness_chance;
                         let active = lock.radar_autonomous_decision_sync.double_weakness_active;
                         if progress == 5 {
-                            // 结算：本地机会数清零
+                            // 结算：机会清零，radar_cmd 归 0（下一局开局为 0，符合协议）
                             lock.radar_autonomous_decision_sync.double_weakness_chance = 0;
+                            lock.radar_autonomous_decision.radar_cmd = 0;
                             log::info!(
                                 "Serial RX decision eval: game_progress=5 (settlement), double_weakness_chance reset to 0"
                             );
                         } else if progress == 4 {
-                            if active == 1 {
-                                // 仅 active==1（正在被触发）时允许累加：chance==0 只发 0；
-                                // chance>=1 单调 +1（消耗一个机会），radar_cmd 上限 2。
-                                if chance == 0 {
-                                    lock.radar_autonomous_decision.radar_cmd = 0;
-                                } else if lock.radar_autonomous_decision.radar_cmd < 2 {
-                                    lock.radar_autonomous_decision.radar_cmd = lock
-                                        .radar_autonomous_decision
-                                        .radar_cmd
-                                        .saturating_add(1);
-                                }
+                            if chance > 0 && lock.radar_autonomous_decision.radar_cmd < 2 {
+                                lock.radar_autonomous_decision.radar_cmd = lock
+                                    .radar_autonomous_decision
+                                    .radar_cmd
+                                    .saturating_add(1);
                             }
                             log::info!(
                                 "Serial RX decision eval: game_progress=4 active={} chance={} radar_cmd={} (0x0121 sent)",
