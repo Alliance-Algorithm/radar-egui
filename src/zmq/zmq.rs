@@ -185,6 +185,7 @@ pub fn zmq_start_sub(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut last_minimap_send: Option<std::time::Instant> = None;
+        let mut last_broadcast_send: Option<std::time::Instant> = None;
         loop {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -256,7 +257,15 @@ pub fn zmq_start_sub(
                     subcontext_data: sub_data,
                 };
             }
-            notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
+            // 0x0200 SDR 广播限频 2Hz（500ms）：每次广播 5 帧 × 50ms 间隔 ≈ 305ms，
+            // SDR 10Hz 满速时无限频会让 TX 线程积压，饿死 0x0305/0x0121。
+            let now_b = std::time::Instant::now();
+            if last_broadcast_send.map_or(true, |t| {
+                now_b.duration_since(t) >= std::time::Duration::from_millis(500)
+            }) {
+                last_broadcast_send = Some(now_b);
+                notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
+            }
             // 0x0305 频率上限 5Hz：SDR 数据 10Hz，限频通知小地图发送。
             // 新鲜度校验：SDR gap 期间会重发旧值（updated_at 不更新），
             // 超过 2s 未更新的坐标视为过期，不发 0x0305（避免旧坐标被当有效）。

@@ -779,3 +779,58 @@ fn test_zmq_sub_sdr_stale_timestamp_skips_minimap_notify() {
     drop(pub_sock);
     thread::sleep(Duration::from_millis(300));
 }
+
+#[test]
+fn test_zmq_sub_sdr_broadcast_notify_rate_limited_2hz() {
+    let shared = Arc::new(Mutex::new(SharedData::default()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx_slot = Arc::new(Mutex::new(Some(tx)));
+
+    let (pub_sock, sub_sock) = make_pair();
+    let _handle = zmq_start_sub(sub_sock, shared.clone(), stop.clone(), tx_slot);
+
+    thread::sleep(Duration::from_millis(50));
+
+    let sdr_json = json!({
+        "cmd_id": 0x2002,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(),
+        "position": {
+            "hero_x": 636, "hero_y": 578,
+            "engineer_x": 300, "engineer_y": 400,
+            "infantry_3_x": 500, "infantry_3_y": 600,
+            "infantry_4_x": 700, "infantry_4_y": 800,
+            "aerial_x": 900, "aerial_y": 1000,
+            "sentry_x": 1100, "sentry_y": 1200,
+        },
+        "blood": SdrEnemyRobotBloodData::default(),
+        "ammo": SdrEnemyRobotRemainingAmmoData::default(),
+        "state": SdrEnemyRobotOverallStateData::default(),
+        "gain": SdrEnemyRobotGainData::default(),
+        "key": { "key": [1, 2, 3, 4, 5, 6] },
+    }).to_string();
+    // 连续发 10 帧（模拟 SDR 10Hz 满速）
+    for _ in 0..10 {
+        zmq_send(&pub_sock, &sdr_json).unwrap();
+        thread::sleep(Duration::from_millis(10));
+    }
+    thread::sleep(Duration::from_millis(700));
+
+    let mut broadcast = 0;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(IDX_ROBOT_INTERACTION) => broadcast += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    assert!(
+        (1..=3).contains(&broadcast),
+        "2Hz 限频：700ms 内 0x0200 广播通知应 1~3 次，实际 {broadcast}"
+    );
+
+    stop.store(true, Ordering::Relaxed);
+    drop(pub_sock);
+    thread::sleep(Duration::from_millis(300));
+}
