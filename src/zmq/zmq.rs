@@ -21,6 +21,9 @@ use crate::shared_data::{
 #[derive(Deserialize)]
 struct SdrMsg {
     cmd_id: u16,
+    /// SDR 数据更新时间（epoch 秒）；gap 期间 SDR 保留旧值重发，凭此判断新鲜度。
+    #[serde(default)]
+    timestamp: f64,
     position: SdrEnemyRobotPositionData,
     blood: SdrEnemyRobotBloodData,
     ammo: SdrEnemyRobotRemainingAmmoData,
@@ -254,10 +257,17 @@ pub fn zmq_start_sub(
                 };
             }
             notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
-            // 0x0305 频率上限 5Hz：SDR 数据 10Hz，限频通知小地图发送
+            // 0x0305 频率上限 5Hz：SDR 数据 10Hz，限频通知小地图发送。
+            // 新鲜度校验：SDR gap 期间会重发旧值（updated_at 不更新），
+            // 超过 2s 未更新的坐标视为过期，不发 0x0305（避免旧坐标被当有效）。
+            let fresh = msg.timestamp <= 0.0
+                || (std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(true, |d| d.as_secs_f64() - msg.timestamp < 2.0));
             let now = std::time::Instant::now();
-            if last_minimap_send
-                .map_or(true, |t| now.duration_since(t) >= std::time::Duration::from_millis(200))
+            if fresh
+                && last_minimap_send
+                    .map_or(true, |t| now.duration_since(t) >= std::time::Duration::from_millis(200))
             {
                 last_minimap_send = Some(now);
                 notify_tx(&tx_slot, IDX_MINIMAP_RECEIVE_RADAR);
@@ -333,32 +343,10 @@ pub fn zmq_start_sub(
                 guard.ally_aerial.y = msg.ally_aerial_y as i16;
                 guard.ally_sentry.x = msg.ally_sentry_x as i16;
                 guard.ally_sentry.y = msg.ally_sentry_y as i16;
-                guard.minimap_receive.opponent_hero_x = msg.opponent_hero_x;
-                guard.minimap_receive.opponent_hero_y = msg.opponent_hero_y;
-                guard.minimap_receive.opponent_engineer_x = msg.opponent_engineer_x;
-                guard.minimap_receive.opponent_engineer_y = msg.opponent_engineer_y;
-                guard.minimap_receive.opponent_infantry_3_x = msg.opponent_infantry_3_x;
-                guard.minimap_receive.opponent_infantry_3_y = msg.opponent_infantry_3_y;
-                guard.minimap_receive.opponent_infantry_4_x = msg.opponent_infantry_4_x;
-                guard.minimap_receive.opponent_infantry_4_y = msg.opponent_infantry_4_y;
-                guard.minimap_receive.opponent_aerial_x = msg.opponent_aerial_x;
-                guard.minimap_receive.opponent_aerial_y = msg.opponent_aerial_y;
-                guard.minimap_receive.opponent_sentry_x = msg.opponent_sentry_x;
-                guard.minimap_receive.opponent_sentry_y = msg.opponent_sentry_y;
-                guard.minimap_receive.ally_hero_x = msg.ally_hero_x;
-                guard.minimap_receive.ally_hero_y = msg.ally_hero_y;
-                guard.minimap_receive.ally_engineer_x = msg.ally_engineer_x;
-                guard.minimap_receive.ally_engineer_y = msg.ally_engineer_y;
-                guard.minimap_receive.ally_infantry_3_x = msg.ally_infantry_3_x;
-                guard.minimap_receive.ally_infantry_3_y = msg.ally_infantry_3_y;
-                guard.minimap_receive.ally_infantry_4_x = msg.ally_infantry_4_x;
-                guard.minimap_receive.ally_infantry_4_y = msg.ally_infantry_4_y;
-                guard.minimap_receive.ally_aerial_x = msg.ally_aerial_x;
-                guard.minimap_receive.ally_aerial_y = msg.ally_aerial_y;
-                guard.minimap_receive.ally_sentry_x = msg.ally_sentry_x;
-                guard.minimap_receive.ally_sentry_y = msg.ally_sentry_y;
             }
-            notify_tx(&tx_slot, IDX_MINIMAP_RECEIVE_RADAR);
+            // 0x0305 minimap 完全由 SDR 信息波坐标驱动（opponent 槽位；ally 槽位无
+            // SDR 数据保持 0），定位（Lidar）数据不写入 minimap_receive。
+            // 0x0305 发送也仅由 SDR 分支限频通知（5Hz），Lidar 不通知。
             continue;
         }
         log::warn!(
