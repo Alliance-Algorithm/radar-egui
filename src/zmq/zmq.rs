@@ -180,7 +180,9 @@ pub fn zmq_start_sub(
     stop: Arc<AtomicBool>,
     tx_slot: Arc<Mutex<Option<mpsc::Sender<usize>>>>,
 ) -> thread::JoinHandle<()> {
-    thread::spawn(move || loop {
+    thread::spawn(move || {
+        let mut last_minimap_send: Option<std::time::Instant> = None;
+        loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
@@ -222,6 +224,20 @@ pub fn zmq_start_sub(
                 guard.enemy_aerial.y = msg.position.aerial_y;
                 guard.enemy_sentry.x = msg.position.sentry_x;
                 guard.enemy_sentry.y = msg.position.sentry_y;
+                // 0x0305 易伤累计坐标：以 SDR 信息波解析的敌方坐标为数据源（覆盖定位坐标）。
+                // SDR 坐标为厘米（协议 0x0A01），负值/异常值截断为 0 防 u16 回绕。
+                guard.minimap_receive.opponent_hero_x = msg.position.hero_x.max(0) as u16;
+                guard.minimap_receive.opponent_hero_y = msg.position.hero_y.max(0) as u16;
+                guard.minimap_receive.opponent_engineer_x = msg.position.engineer_x.max(0) as u16;
+                guard.minimap_receive.opponent_engineer_y = msg.position.engineer_y.max(0) as u16;
+                guard.minimap_receive.opponent_infantry_3_x = msg.position.infantry_3_x.max(0) as u16;
+                guard.minimap_receive.opponent_infantry_3_y = msg.position.infantry_3_y.max(0) as u16;
+                guard.minimap_receive.opponent_infantry_4_x = msg.position.infantry_4_x.max(0) as u16;
+                guard.minimap_receive.opponent_infantry_4_y = msg.position.infantry_4_y.max(0) as u16;
+                guard.minimap_receive.opponent_aerial_x = msg.position.aerial_x.max(0) as u16;
+                guard.minimap_receive.opponent_aerial_y = msg.position.aerial_y.max(0) as u16;
+                guard.minimap_receive.opponent_sentry_x = msg.position.sentry_x.max(0) as u16;
+                guard.minimap_receive.opponent_sentry_y = msg.position.sentry_y.max(0) as u16;
                 guard.sdr_blood = msg.blood;
                 guard.sdr_ammo = msg.ammo;
                 guard.sdr_state = msg.state;
@@ -238,6 +254,14 @@ pub fn zmq_start_sub(
                 };
             }
             notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
+            // 0x0305 频率上限 5Hz：SDR 数据 10Hz，限频通知小地图发送
+            let now = std::time::Instant::now();
+            if last_minimap_send
+                .map_or(true, |t| now.duration_since(t) >= std::time::Duration::from_millis(200))
+            {
+                last_minimap_send = Some(now);
+                notify_tx(&tx_slot, IDX_MINIMAP_RECEIVE_RADAR);
+            }
             continue;
         }
         // Laser
@@ -341,6 +365,7 @@ pub fn zmq_start_sub(
             "ZMQ SUB: message not parsed ({} bytes)",
             bytes.len()
         );
+        }
     })
 }
 
