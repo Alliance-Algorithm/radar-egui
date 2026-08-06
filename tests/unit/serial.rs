@@ -99,7 +99,7 @@ fn transmitter_sends_minimap_on_notification() {
 
 #[test]
 #[cfg(unix)]
-fn broadcast_sends_five_interaction_frames() {
+fn broadcast_sends_three_interaction_frames() {
     let (input, mut output) = serial2::SerialPort::pair().expect("open test serial pair");
     output
         .set_read_timeout(Duration::from_millis(50))
@@ -119,11 +119,12 @@ fn broadcast_sends_five_interaction_frames() {
     tx.send(radar_egui::shared_data::IDX_ROBOT_INTERACTION)
         .expect("send robot interaction notification");
 
-    // SDR 驱动的 0x0200 广播仅 5 帧（0x0121 决策帧由 0x020E sync 单独触发）。
-    let bytes = read_bytes(&mut output, 5 * 127, Duration::from_millis(1000));
+    // SDR 驱动的 0x0200 广播仅 3 帧（步兵3/步兵4/空中，不含英雄与哨兵；
+    // 0x0121 决策帧由 0x020E sync 单独触发）。
+    let bytes = read_bytes(&mut output, 3 * 127, Duration::from_millis(1000));
 
-    assert_eq!(bytes.len(), 5 * 127, "five broadcast frames only");
-    for i in 0..5 {
+    assert_eq!(bytes.len(), 3 * 127, "three broadcast frames only");
+    for i in 0..3 {
         let frame = &bytes[i * 127..(i + 1) * 127];
         assert_eq!(frame[0], 0xA5, "frame {} SOF", i);
         let cmd_id = u16::from_le_bytes([frame[5], frame[6]]);

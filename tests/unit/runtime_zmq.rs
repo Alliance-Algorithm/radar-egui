@@ -288,42 +288,6 @@ fn test_zmq_sub_sdr_does_not_touch_autonomous_decision() {
     thread::sleep(Duration::from_millis(300));
 }
 
-// ─── Lidar SUB test ───
-
-#[test]
-fn test_zmq_sub_lidar_populates_positions() {
-    let shared = Arc::new(Mutex::new(SharedData::default()));
-    let stop = Arc::new(AtomicBool::new(false));
-
-    let (pub_sock, sub_sock) = make_pair();
-    let _handle = zmq_start_sub(
-        sub_sock,
-        shared.clone(),
-        stop.clone(),
-        Arc::new(Mutex::new(None)),
-    );
-
-    thread::sleep(Duration::from_millis(50));
-
-    zmq_send(&pub_sock, &make_lidar_json()).unwrap();
-    thread::sleep(Duration::from_millis(100));
-
-    let guard = shared.lock().unwrap();
-    assert_eq!(guard.enemy_hero.x, 10, "enemy_hero.x");
-    assert_eq!(guard.enemy_hero.y, 20, "enemy_hero.y");
-    assert_eq!(guard.enemy_sentry.x, 110, "enemy_sentry.x");
-    assert_eq!(guard.enemy_sentry.y, 120, "enemy_sentry.y");
-    assert_eq!(guard.ally_hero.x, 1000, "ally_hero.x");
-    assert_eq!(guard.ally_hero.y, 2000, "ally_hero.y");
-    assert_eq!(guard.ally_sentry.x, 11000, "ally_sentry.x");
-    assert_eq!(guard.ally_sentry.y, 12000, "ally_sentry.y");
-    drop(guard);
-
-    stop.store(true, Ordering::Relaxed);
-    drop(pub_sock);
-    thread::sleep(Duration::from_millis(300));
-}
-
 // ─── PUB tests ───
 
 #[test]
@@ -598,7 +562,7 @@ fn test_zmq_sub_sdr_populates_minimap_opponent() {
 }
 
 #[test]
-fn test_zmq_sub_lidar_does_not_touch_minimap_or_notify() {
+fn test_zmq_sub_lidar_ignored() {
     let shared = Arc::new(Mutex::new(SharedData::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::channel();
@@ -637,10 +601,10 @@ fn test_zmq_sub_lidar_does_not_touch_minimap_or_notify() {
     assert_eq!(guard.minimap_receive.opponent_hero_x, 636, "定位不得覆盖 SDR 坐标");
     assert_eq!(guard.minimap_receive.opponent_hero_y, 578);
     assert_eq!(guard.minimap_receive.ally_hero_x, 0, "定位不写 ally 槽位");
-    assert_eq!(guard.enemy_hero.x, 10, "定位仍写 enemy_* 供 UI");
+    assert_eq!(guard.enemy_hero.x, 636, "定位分支已移除，不再覆盖 enemy_*");
     drop(guard);
 
-    // Lidar 帧不应产生 minimap 通知（0x0305 仅由 SDR 驱动）
+    // Lidar 分支已移除：不应产生任何通知（0x0305 仅由 SDR 驱动）
     let notif = rx.recv_timeout(Duration::from_millis(300));
     assert!(
         matches!(notif, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
@@ -781,7 +745,7 @@ fn test_zmq_sub_sdr_stale_timestamp_skips_minimap_notify() {
 }
 
 #[test]
-fn test_zmq_sub_sdr_broadcast_notify_rate_limited_2hz() {
+fn test_zmq_sub_sdr_broadcast_notify_rate_limited_1hz() {
     let shared = Arc::new(Mutex::new(SharedData::default()));
     let stop = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::channel();
@@ -826,8 +790,8 @@ fn test_zmq_sub_sdr_broadcast_notify_rate_limited_2hz() {
         }
     }
     assert!(
-        (1..=3).contains(&broadcast),
-        "2Hz 限频：700ms 内 0x0200 广播通知应 1~3 次，实际 {broadcast}"
+        (1..=2).contains(&broadcast),
+        "1Hz 限频：700ms 内 0x0200 广播通知应 1 次（最多 2），实际 {broadcast}"
     );
 
     stop.store(true, Ordering::Relaxed);

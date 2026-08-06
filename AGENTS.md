@@ -62,9 +62,9 @@ laser_guidance ─────ZMQ PUB :5556──┼──▶ ZMQ SUB 线程 ─
 alliance_radar_location_lidar ─────┘                         Arc<Mutex<SharedData>>
                                        │                               │
                                        │  ┌─ tx.send(IDX_ROBOT_INTERACTION) ─▶ Serial TX
-                                       │  │   SDR: 0x0121 决策单帧(优先) + 0x0200 广播 5 帧
+                                       │  │   SDR: 0x0121 决策单帧(优先) + 0x0200 广播 3 帧
                                        │  └─ tx.send(IDX_MINIMAP_RECEIVE_RADAR)─▶ Serial TX
-                                       │      Lidar: 0x0305 小地图单帧
+                                       │      SDR: 0x0305 小地图单帧（信息波坐标驱动，Lidar 已移除）
                                        └─▶ UI 最新快照
 
 DJI Referee ──UART──▶ Serial RX ──▶ Parser ──写──▶ SharedData ──▶ UI 独立读取最新快照
@@ -157,7 +157,7 @@ egui → tokio::sync::mpsc<ProcessCommand> → ProcessRuntime actor → ScriptRu
 - DJI 裁判协议：parser / package / CRC / deku 结构体
 - Serial UI 调用 `open_serial()` 后启动 `serial_start_receiver` / `serial_start_transmitter`；`RadarApp::default` 不自动打开串口
 - Parser 通过 `mpsc::Sender` 通道只通知 ZMQ PUB 线程（0x0001 GameState / 0x020C RadarMarkProcess）；其余 RX 帧（0x0002/0x0101/0x0105/0x020E）只写 SharedData，不回发 UART
-- Serial TX 阻塞等待自己的 idx receiver，由 ZMQ SUB 通知驱动（SDR → 0x0121 决策单帧优先 + 0x0200 广播 5 帧；Lidar → 0x0305 单帧）；RX 帧不回发
+- Serial TX 阻塞等待自己的 idx receiver，由 ZMQ SUB 通知驱动（SDR → 0x0121 决策单帧优先 + 0x0200 广播 3 帧（不含英雄/哨兵）；SDR → 0x0305 单帧）；RX 帧不回发
 - Serial 无任何 I/O timeout（无延时）；ZMQ SUB 阻塞 `recv_bytes`，`ZmqSubRuntime::stop()` 不 join（detach）
 
 ### `laser/` / `pointcloud/` / `widgets/`

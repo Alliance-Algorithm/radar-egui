@@ -41,35 +41,6 @@ struct LaserMsg {
     contour: Vec<[f32; 2]>,
 }
 
-#[derive(Deserialize)]
-struct LidarMsg {
-    cmd_id: u16,
-    opponent_hero_x: u16,
-    opponent_hero_y: u16,
-    opponent_engineer_x: u16,
-    opponent_engineer_y: u16,
-    opponent_infantry_3_x: u16,
-    opponent_infantry_3_y: u16,
-    opponent_infantry_4_x: u16,
-    opponent_infantry_4_y: u16,
-    opponent_aerial_x: u16,
-    opponent_aerial_y: u16,
-    opponent_sentry_x: u16,
-    opponent_sentry_y: u16,
-    ally_hero_x: u16,
-    ally_hero_y: u16,
-    ally_engineer_x: u16,
-    ally_engineer_y: u16,
-    ally_infantry_3_x: u16,
-    ally_infantry_3_y: u16,
-    ally_infantry_4_x: u16,
-    ally_infantry_4_y: u16,
-    ally_aerial_x: u16,
-    ally_aerial_y: u16,
-    ally_sentry_x: u16,
-    ally_sentry_y: u16,
-}
-
 // ── Public API ──
 
 pub fn zmq_init_pub(thread_num: i32, bind_addr: &str) -> zmq2::Result<zmq2::Socket> {
@@ -257,11 +228,11 @@ pub fn zmq_start_sub(
                     subcontext_data: sub_data,
                 };
             }
-            // 0x0200 SDR 广播限频 2Hz（500ms）：每次广播 5 帧 × 50ms 间隔 ≈ 305ms，
+            // 0x0200 SDR 广播限频 1Hz（1000ms）：每次广播 3 帧 × 50ms 间隔 ≈ 300ms，
             // SDR 10Hz 满速时无限频会让 TX 线程积压，饿死 0x0305/0x0121。
             let now_b = std::time::Instant::now();
             if last_broadcast_send.map_or(true, |t| {
-                now_b.duration_since(t) >= std::time::Duration::from_millis(500)
+                now_b.duration_since(t) >= std::time::Duration::from_millis(1000)
             }) {
                 last_broadcast_send = Some(now_b);
                 notify_tx(&tx_slot, IDX_ROBOT_INTERACTION);
@@ -296,66 +267,6 @@ pub fn zmq_start_sub(
             if let Ok(mut guard) = shared.lock() {
                 // laser data: if needed, add to SharedData
             }
-            continue;
-        }
-        // Lidar
-        if let Ok(msg) = serde_json::from_slice::<LidarMsg>(&bytes) {
-            log::info!(
-                "ZMQ SUB Lidar: opp hero=({},{}) eng=({},{}) inf3=({},{}) inf4=({},{}) aerial=({},{}) sentry=({},{}) ally hero=({},{}) eng=({},{}) inf3=({},{}) inf4=({},{}) aerial=({},{}) sentry=({},{})",
-                msg.opponent_hero_x,
-                msg.opponent_hero_y,
-                msg.opponent_engineer_x,
-                msg.opponent_engineer_y,
-                msg.opponent_infantry_3_x,
-                msg.opponent_infantry_3_y,
-                msg.opponent_infantry_4_x,
-                msg.opponent_infantry_4_y,
-                msg.opponent_aerial_x,
-                msg.opponent_aerial_y,
-                msg.opponent_sentry_x,
-                msg.opponent_sentry_y,
-                msg.ally_hero_x,
-                msg.ally_hero_y,
-                msg.ally_engineer_x,
-                msg.ally_engineer_y,
-                msg.ally_infantry_3_x,
-                msg.ally_infantry_3_y,
-                msg.ally_infantry_4_x,
-                msg.ally_infantry_4_y,
-                msg.ally_aerial_x,
-                msg.ally_aerial_y,
-                msg.ally_sentry_x,
-                msg.ally_sentry_y,
-            );
-            if let Ok(mut guard) = shared.lock() {
-                guard.enemy_hero.x = msg.opponent_hero_x as i16;
-                guard.enemy_hero.y = msg.opponent_hero_y as i16;
-                guard.enemy_engineer.x = msg.opponent_engineer_x as i16;
-                guard.enemy_engineer.y = msg.opponent_engineer_y as i16;
-                guard.enemy_infantry_3.x = msg.opponent_infantry_3_x as i16;
-                guard.enemy_infantry_3.y = msg.opponent_infantry_3_y as i16;
-                guard.enemy_infantry_4.x = msg.opponent_infantry_4_x as i16;
-                guard.enemy_infantry_4.y = msg.opponent_infantry_4_y as i16;
-                guard.enemy_aerial.x = msg.opponent_aerial_x as i16;
-                guard.enemy_aerial.y = msg.opponent_aerial_y as i16;
-                guard.enemy_sentry.x = msg.opponent_sentry_x as i16;
-                guard.enemy_sentry.y = msg.opponent_sentry_y as i16;
-                guard.ally_hero.x = msg.ally_hero_x as i16;
-                guard.ally_hero.y = msg.ally_hero_y as i16;
-                guard.ally_engineer.x = msg.ally_engineer_x as i16;
-                guard.ally_engineer.y = msg.ally_engineer_y as i16;
-                guard.ally_infantry_3.x = msg.ally_infantry_3_x as i16;
-                guard.ally_infantry_3.y = msg.ally_infantry_3_y as i16;
-                guard.ally_infantry_4.x = msg.ally_infantry_4_x as i16;
-                guard.ally_infantry_4.y = msg.ally_infantry_4_y as i16;
-                guard.ally_aerial.x = msg.ally_aerial_x as i16;
-                guard.ally_aerial.y = msg.ally_aerial_y as i16;
-                guard.ally_sentry.x = msg.ally_sentry_x as i16;
-                guard.ally_sentry.y = msg.ally_sentry_y as i16;
-            }
-            // 0x0305 minimap 完全由 SDR 信息波坐标驱动（opponent 槽位；ally 槽位无
-            // SDR 数据保持 0），定位（Lidar）数据不写入 minimap_receive。
-            // 0x0305 发送也仅由 SDR 分支限频通知（5Hz），Lidar 不通知。
             continue;
         }
         log::warn!(

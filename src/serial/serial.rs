@@ -156,6 +156,7 @@ pub fn serial_start_transmitter(
     worker_health: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
+        let mut last_minimap_sent: Option<std::time::Instant> = None;
         loop {
             if stop.load(Ordering::Relaxed) {
                 break;
@@ -170,16 +171,7 @@ pub fn serial_start_transmitter(
             });
             match idx {
                 IDX_MINIMAP_RECEIVE_RADAR => {
-                    if let Ok(data_bytes) = data.minimap_receive.to_bytes() {
-                        let frame = serial_package(MINIMAP_RECEIVE_RADAR_CMD_ID, data_bytes);
-                        if let Ok(frame_bytes) = frame.to_bytes() {
-                            serial.send_data(&frame_bytes);
-                            log::info!(
-                                "Serial TX 0x0305 minimap sent ({} bytes)",
-                                frame_bytes.len()
-                            );
-                        }
-                    }
+                    send_minimap(&serial, &data, &mut last_minimap_sent);
                     continue;
                 }
                 IDX_ROBOT_INTERACTION_DECISION => {
@@ -202,24 +194,23 @@ pub fn serial_start_transmitter(
                     };
                     let targets: &[DeviceId] = if data.radar_side == "blue" {
                         &[
-                            DeviceId::BlueHero,
                             DeviceId::BlueInfantry3,
                             DeviceId::BlueInfantry4,
-                            DeviceId::BlueSentry,
                             DeviceId::BlueAerial,
                         ]
                     } else {
                         &[
-                            DeviceId::RedHero,
                             DeviceId::RedInfantry3,
                             DeviceId::RedInfantry4,
-                            DeviceId::RedSentry,
                             DeviceId::RedAerial,
                         ]
                     };
                     drop(data);
-                    // SDR 数据广播到五个己方单位（0x0200）；0x0121 决策帧由
+                    // SDR 数据广播到三个己方单位（步兵3/步兵4/空中，不含英雄与哨兵）；0x0121 决策帧由
                     // IDX_ROBOT_INTERACTION_DECISION（0x020E sync）单独触发。
+                    // 帧间 sleep 50ms：配合 ZMQ 侧 1Hz 通知限频，0x0301 帧率 ≤3Hz < 30Hz 上限，
+                    // 单次广播约 300ms（写 ~50ms/帧 + 3×50ms sleep），每秒仅占 TX 约 300ms，
+                    // 为 0x0305（5Hz）留出充足发送空档。
                     let mut broadcast_frames = 0;
                     for &target in targets {
                         if stop.load(Ordering::Relaxed) {
@@ -256,4 +247,35 @@ pub fn serial_start_transmitter(
         }
         worker_health.store(false, Ordering::Relaxed);
     })
+}
+
+/// 发送 0x0305 minimap 帧并输出详细日志（发送间隔 Δ + 六组 opponent 坐标 + 帧长），
+/// 用于现场核对发送频率与内容。
+fn send_minimap(
+    serial: &Serial,
+    data: &SharedData,
+    last_minimap_sent: &mut Option<std::time::Instant>,
+) {
+    if let Ok(data_bytes) = data.minimap_receive.to_bytes() {
+        let frame = serial_package(MINIMAP_RECEIVE_RADAR_CMD_ID, data_bytes);
+        if let Ok(frame_bytes) = frame.to_bytes() {
+            serial.send_data(&frame_bytes);
+            let delta_ms = last_minimap_sent
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0);
+            *last_minimap_sent = Some(std::time::Instant::now());
+            let m = &data.minimap_receive;
+            log::info!(
+                "Serial TX 0x0305 minimap sent ({} bytes) Δ={}ms hero=({},{}) eng=({},{}) inf3=({},{}) inf4=({},{}) aerial=({},{}) sentry=({},{})",
+                frame_bytes.len(),
+                delta_ms,
+                m.opponent_hero_x, m.opponent_hero_y,
+                m.opponent_engineer_x, m.opponent_engineer_y,
+                m.opponent_infantry_3_x, m.opponent_infantry_3_y,
+                m.opponent_infantry_4_x, m.opponent_infantry_4_y,
+                m.opponent_aerial_x, m.opponent_aerial_y,
+                m.opponent_sentry_x, m.opponent_sentry_y,
+            );
+        }
+    }
 }

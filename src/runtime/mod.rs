@@ -45,7 +45,7 @@ impl ZmqSubRuntime {
     }
 
     /// Attach (or detach with `None`) the serial TX notification channel.
-    /// The ZMQ SUB thread notifies the serial transmitter on SDR / Lidar messages.
+    /// The ZMQ SUB thread notifies the serial transmitter on SDR broadcast / decision messages.
     pub fn set_tx_notify(&self, tx: Option<std::sync::mpsc::Sender<usize>>) {
         if let Ok(mut slot) = self.tx_slot.lock() {
             *slot = tx;
